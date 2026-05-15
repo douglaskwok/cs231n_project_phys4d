@@ -216,6 +216,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-
-# Project-generated PyBullet outputs
-pybullet_outputs/ping_pong_bounce_10view_*

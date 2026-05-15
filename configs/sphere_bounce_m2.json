@@ -1,0 +1,80 @@
+{
+  "experiment": "sphere_bounce_m2",
+  "description": "Milestone 2 first experiment: recover sphere-ground restitution from a single PyBullet bounce with known masks and poses.",
+  "scene": {
+    "objects": [
+      {
+        "name": "sphere",
+        "shape": "sphere",
+        "radius_m": 0.1,
+        "mass_kg": 1.0,
+        "initial_position_m": [0.0, 0.0, 1.6],
+        "initial_velocity_m_s": [0.0, 0.0, 0.0],
+        "recover_parameters": ["restitution"]
+      },
+      {
+        "name": "ground",
+        "shape": "plane",
+        "height_m": 0.0,
+        "known": true
+      }
+    ],
+    "gravity_m_s2": [0.0, 0.0, -9.81],
+    "true_restitution": 0.72,
+    "known_inputs": [
+      "camera_intrinsics",
+      "camera_extrinsics",
+      "object_masks",
+      "object_poses",
+      "sphere_radius",
+      "ground_height"
+    ]
+  },
+  "simulation": {
+    "physics_engine": "pybullet",
+    "dt_s": 0.0166666667,
+    "num_frames": 90,
+    "train_frames": [0, 59],
+    "test_frames": [60, 89],
+    "train_horizon_s": 1.0,
+    "test_horizon_s": 0.5
+  },
+  "cameras": {
+    "num_cameras": 6,
+    "layout": "ring_around_origin",
+    "train_cameras": [0, 1, 2, 3],
+    "test_cameras": [4, 5],
+    "image_size": [256, 256],
+    "look_at_m": [0.0, 0.0, 0.5],
+    "radius_m": 2.0,
+    "height_m": 0.8
+  },
+  "outputs": {
+    "rgb_frames": "outputs/sphere_bounce_m2/rgb/",
+    "masks": "outputs/sphere_bounce_m2/masks/",
+    "camera_poses": "outputs/sphere_bounce_m2/cameras.json",
+    "object_poses": "outputs/sphere_bounce_m2/object_poses.csv",
+    "metadata": "outputs/sphere_bounce_m2/metadata.json",
+    "recovery_report": "outputs/sphere_bounce_m2/restitution_recovery.json"
+  },
+  "metrics": [
+    "restitution_absolute_error",
+    "z_trajectory_mse_train",
+    "z_trajectory_mse_test",
+    "future_frame_psnr",
+    "future_frame_masked_mse",
+    "prediction_mse_by_horizon"
+  ],
+  "baselines": [
+    "constant_velocity_extrapolation",
+    "unconstrained_per_frame_pose_fit",
+    "vanilla_4dgs_interpolation_extrapolation_plan"
+  ],
+  "stretch_extensions": [
+    "recover_initial_vertical_velocity",
+    "add friction for sliding or oblique bounce",
+    "two-sphere collision with mass ratio recovery",
+    "replace known masks with SAM or object clustering",
+    "render counterfactual restitution edits"
+  ]
+}

@@ -1,0 +1,10 @@
+# Minimal deps for Milestone 2 scripts beyond core PyTorch (recover_restitution).
+# Use with the existing phys_sim venv where possible; otherwise pip install -r requirements-m2.txt
+#
+# macOS: pip often tries to compile pybullet from source and fails (no wheel).
+# Prefer: conda install -c conda-forge pybullet numpy imageio
+# Then install torch separately (conda pytorch or pip) and keep numpy<2 if torch errors on NumPy 2.
+
+pybullet>=3.2.5
+numpy>=1.23
+imageio>=2.31
