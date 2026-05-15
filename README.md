@@ -12,6 +12,9 @@ Focused scaffold for the CS231N Milestone 2 direction: object-centric Gaussian s
 - `scripts/export_gs_blender_scene.py`: packages **your** `rgb/cam*/frame*.png` + `cameras.json` into a 3DGS Blender folder (`transforms_train.json` + `train/*.png`).
 - `scripts/export_nerf_transforms.py`: writes `transforms_train_static.json` (NeRF-style cameras + paths) for one timestep — input toward 3DGS / NeRF forks.
 - `scripts/recover_restitution_from_poses.py`: fits the toy 1D bounce to **PyBullet** `z_m` from `object_poses.csv` (bridges sim logs to optimization; expect bias vs true `e` until the sim matches PyBullet or you use pixels).
+- `scripts/warp_gaussians_to_frame.py`: rigidly warps trained 3DGS to a target frame via `object_poses.csv`.
+- `scripts/eval_physics_trajectory_split.py`: fit restitution on train frames, MSE on held-out test frames.
+- `scripts/eval_warped_mask_coverage.py`: project warped sphere Gaussians into masks (proxy for render alignment).
 - `src/phys4d/differentiable_bounce.py`: minimal PyTorch differentiable bounce simulator and restitution recovery helper.
 - `scripts/recover_restitution.py`: synthetic restitution recovery demo.
 - `tests/test_restitution_recovery.py`: `unittest` checks for gradient flow and recovery accuracy.

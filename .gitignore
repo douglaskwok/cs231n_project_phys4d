@@ -224,5 +224,11 @@ outputs/
 gs_sphere_bounce/
 local_gs_out/
 
+# Trained 4DGS checkpoints, metrics, and downloaded renders (Modal volume get)
+4dgs_sphere_bounce/
+metrics_4dgs.json
+latest/
+orbit_latest/
+
 # macOS
 .DS_Store
