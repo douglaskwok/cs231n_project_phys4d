@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generated M2 dataset exports (large RGB/mask trees)
+outputs/
+
+# Trained 3DGS checkpoints (download from Modal volume)
+gs_sphere_bounce/
+local_gs_out/
+
+# macOS
+.DS_Store
