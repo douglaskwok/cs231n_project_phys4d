@@ -15,7 +15,7 @@ SRC = REPO_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from phys4d.camera_project import load_gs_cameras, mask_coverage_fraction  # noqa: E402
+from phys4d.camera_project import load_gs_cameras, mask_coverage_fraction_multiview  # noqa: E402
 from phys4d.gaussian_ply import (  # noqa: E402
     estimate_pb_to_gs_z_scale,
     filter_sphere_gaussians_by_opacity,
@@ -33,6 +33,14 @@ from phys4d.sim_rollout import rollout_from_config, write_pose_csv  # noqa: E402
 def _load_config(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _report_path(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(REPO_ROOT.resolve()))
+    except ValueError:
+        return str(resolved)
 
 
 def _param_errors(pred: dict[str, float], gt: dict[str, float] | None) -> dict[str, float] | None:
@@ -172,11 +180,12 @@ def main() -> int:
         cov_pred = None
         cov_gt = None
         if masks_root.is_dir() and gs_cams:
-            cov_pred = mask_coverage_fraction(
+            cov_pred = mask_coverage_fraction_multiview(
                 warped.xyz,
-                masks_root=masks_root,
-                frame=frame,
-                gs_cameras=gs_cams[:6],
+                masks_root,
+                frame,
+                gs_cams,
+                max_views=6,
             )
             if gt_traj is not None:
                 warped_gt = warp_gaussians_to_frame(
@@ -186,29 +195,30 @@ def main() -> int:
                     target_frame=frame,
                     z_scale=z_scale,
                 )
-                cov_gt = mask_coverage_fraction(
+                cov_gt = mask_coverage_fraction_multiview(
                     warped_gt.xyz,
-                    masks_root=masks_root,
-                    frame=frame,
-                    gs_cameras=gs_cams[:6],
+                    masks_root,
+                    frame,
+                    gs_cams,
+                    max_views=6,
                 )
         render_proxy.append(
             {
                 "frame": frame,
-                "ply": str(ply_path.relative_to(REPO_ROOT)),
+                "ply": _report_path(ply_path),
                 "mask_coverage_predicted_traj": cov_pred,
                 "mask_coverage_gt_traj": cov_gt,
             }
         )
 
     report = {
-        "scene_dir": str(scene_dir.relative_to(REPO_ROOT)),
+        "scene_dir": _report_path(scene_dir),
         "predicted_params": pred_params,
         "ground_truth_params": infer.get("ground_truth"),
         "param_mse": _param_errors(pred_params, infer.get("ground_truth")),
         "trajectory_z_mse_test_half": traj_mse,
         "z_scale_pb_to_gs": z_scale,
-        "predicted_poses_csv": str(pred_poses.relative_to(REPO_ROOT)),
+        "predicted_poses_csv": _report_path(pred_poses),
         "render_proxy": render_proxy,
         "note": "render_proxy uses mask coverage on warped 3DGS; full RGB PSNR needs graphdeco render on Modal.",
     }

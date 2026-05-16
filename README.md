@@ -7,41 +7,20 @@ Multi-view video → **4DGS** (perception) → per-object **states** + **t=0 vis
 | Doc | Purpose |
 |-----|---------|
 | [`project.md`](project.md) | **Authoritative** phases 1–6 |
-| [`docs/PIPELINE_FROM_SCRATCH.md`](docs/PIPELINE_FROM_SCRATCH.md) | Commands |
-| [`docs/PROJECT_CHECKLIST.md`](docs/PROJECT_CHECKLIST.md) | Status |
+| [`docs/WORKFLOW_COMMANDS.md`](docs/WORKFLOW_COMMANDS.md) | **All commands** (local + Modal) |
+| [`docs/PIPELINE_FROM_SCRATCH.md`](docs/PIPELINE_FROM_SCRATCH.md) | High-level flow |
+| [`docs/PROJECT_CHECKLIST.md`](docs/PROJECT_CHECKLIST.md) | Implementation status |
 
 ## Quick start
 
 ```bash
 conda activate phys4d
 python -m unittest tests/test_visual_dynamics.py -q
-
-# Phase 1–2 (data + perception cache)
-python scripts/build_param_id_splits.py \
-  --batch-root outputs/sphere_bounce_batch \
-  --out outputs/sphere_bounce_batch/dataset_manifest.json
-python scripts/extract_perception.py --limit 5
-
-# Phase 3–4 (train dynamics)
-python scripts/train_visual_dynamics.py \
-  --manifest outputs/sphere_bounce_batch/dataset_manifest.json
-
-# Phase 5 (E2E on one scene; needs checkpoint + gs_sphere_bounce PLY)
-python scripts/run_visual_dynamics_pipeline.py
-
-# Phase 6
-python scripts/eval_visual_dynamics.py
-python scripts/run_visual_dynamics_ablations.py --skip-train  # after training both models
 ```
 
-## Modal (4DGS perception)
+Then follow **[`docs/WORKFLOW_COMMANDS.md`](docs/WORKFLOW_COMMANDS.md)** (data → Modal train → E2E → eval).
 
-```bash
-python scripts/export_4dgs_dataset.py
-modal run modal_app.py --upload-4d && modal run modal_app.py --train-4d
-```
-
-See [`docs/modal_scripts.md`](docs/modal_scripts.md).
+Modal summary: [`docs/modal_scripts.md`](docs/modal_scripts.md).
 
 ## Legacy
 

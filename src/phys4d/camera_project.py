@@ -258,3 +258,26 @@ def mask_coverage_fraction(
     v = np.clip(np.round(uv[vis_idx, 1]).astype(np.int32), 0, mask.shape[0] - 1)
     hits = int(np.sum(mask[v, u] > 0))
     return float(hits) / float(vis_idx.size)
+
+
+def mask_coverage_fraction_multiview(
+    points: np.ndarray,
+    masks_root: Path,
+    frame: int,
+    gs_cameras: list[dict],
+    *,
+    max_views: int | None = None,
+) -> float | None:
+    """Mean mask coverage over views that have a mask image for ``frame``."""
+
+    frame_tag = f"frame{frame:05d}.png"
+    cams = gs_cameras if max_views is None else gs_cameras[:max_views]
+    fracs: list[float] = []
+    for ci, cam in enumerate(cams):
+        mask_path = masks_root / f"cam{ci:02d}" / frame_tag
+        if not mask_path.is_file():
+            continue
+        fracs.append(mask_coverage_fraction(points, mask_path, gs_camera=cam))
+    if not fracs:
+        return None
+    return float(np.mean(fracs))

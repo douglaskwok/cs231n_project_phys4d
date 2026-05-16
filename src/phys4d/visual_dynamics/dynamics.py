@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class ObjectTokenDynamics(nn.Module):
@@ -74,5 +75,11 @@ class ObjectTokenDynamics(nn.Module):
         state_history: torch.Tensor,
         visual_feat: torch.Tensor,
     ) -> torch.Tensor:
+        """Integrate delta on position/velocity; keep quaternion on S3 (sphere has no spin)."""
         delta = self.forward(state_history, visual_feat)
-        return state_history[:, :, -1, :] + delta
+        last = state_history[:, :, -1, :]
+        nxt = last.clone()
+        nxt[..., :3] = last[..., :3] + delta[..., :3]
+        nxt[..., 7:10] = last[..., 7:10] + delta[..., 7:10]
+        nxt[..., 3:7] = F.normalize(last[..., 3:7], dim=-1, eps=1e-6)
+        return nxt

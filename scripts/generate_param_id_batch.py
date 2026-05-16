@@ -25,10 +25,33 @@ def _load_json(path: Path) -> dict:
         return json.load(f)
 
 
+def _linspace_samples(spec: dict) -> list[float]:
+    lo, hi = float(spec["min"]), float(spec["max"])
+    steps = int(spec.get("steps", 1))
+    if steps <= 1:
+        return [lo]
+    return [float(x) for x in np.linspace(lo, hi, steps)]
+
+
 def _sample_params(manifest: dict, rng: np.random.Generator) -> list[dict]:
-    n = int(manifest["target_scenes"])
     s = manifest["sampling"]
-    rows: list[dict] = []
+    if all("steps" in s[k] for k in ("restitution", "mass_kg", "drop_z_m")):
+        rows: list[dict] = []
+        for e in _linspace_samples(s["restitution"]):
+            for m in _linspace_samples(s["mass_kg"]):
+                for z in _linspace_samples(s["drop_z_m"]):
+                    rows.append(
+                        {
+                            "restitution": e,
+                            "mass_kg": m,
+                            "drop_z_m": z,
+                        }
+                    )
+        n = int(manifest.get("target_scenes", len(rows)))
+        return rows[:n]
+
+    n = int(manifest["target_scenes"])
+    rows = []
     for _ in range(n):
         rows.append(
             {
@@ -38,6 +61,23 @@ def _sample_params(manifest: dict, rng: np.random.Generator) -> list[dict]:
             }
         )
     return rows
+
+
+def _apply_cameras(cfg: dict, manifest: dict, *, num_cameras: int | None) -> None:
+    cams = cfg.setdefault("cameras", {})
+    block = manifest.get("cameras", {})
+    n = num_cameras if num_cameras is not None else int(block.get("num_cameras", cams.get("num_cameras", 10)))
+    cams["num_cameras"] = n
+    if "train_cameras" in block:
+        cams["train_cameras"] = list(block["train_cameras"])
+    elif n >= 10:
+        cams["train_cameras"] = list(range(8))
+        cams["test_cameras"] = [8, 9]
+    elif n >= 6:
+        cams["train_cameras"] = list(range(min(4, n)))
+        cams["test_cameras"] = list(range(min(4, n), n))
+    if "test_cameras" in block:
+        cams["test_cameras"] = list(block["test_cameras"])
 
 
 def _apply_physics(base: dict, restitution: float, mass_kg: float, drop_z_m: float) -> dict:
@@ -66,6 +106,12 @@ def main() -> int:
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--num-cameras",
+        type=int,
+        default=None,
+        help="Ring camera count (default: manifest cameras.num_cameras or 10)",
+    )
     args = parser.parse_args()
 
     manifest = _load_json(args.manifest.resolve())
@@ -86,6 +132,7 @@ def main() -> int:
             mass_kg=float(params["mass_kg"]),
             drop_z_m=float(params["drop_z_m"]),
         )
+        _apply_cameras(cfg, manifest, num_cameras=args.num_cameras)
         cfg["experiment"] = name
         rel = scene_dir.relative_to(REPO_ROOT).as_posix()
         cfg["outputs"] = {

@@ -7,12 +7,11 @@ import torch.nn.functional as F
 
 
 def quat_geodesic_loss(q_pred: torch.Tensor, q_gt: torch.Tensor) -> torch.Tensor:
-    """Geodesic distance on unit quaternions [qx,qy,qz,qw]."""
-    qp = F.normalize(q_pred, dim=-1)
-    qg = F.normalize(q_gt, dim=-1)
+    """Quaternion alignment loss; stable vs acos when ||q|| -> 0."""
+    qp = F.normalize(q_pred, dim=-1, eps=1e-6)
+    qg = F.normalize(q_gt, dim=-1, eps=1e-6)
     dot = torch.abs((qp * qg).sum(dim=-1)).clamp(0.0, 1.0)
-    angle = 2.0 * torch.acos(dot)
-    return (angle**2).mean()
+    return (1.0 - dot**2).mean()
 
 
 def state_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:

@@ -1,41 +1,27 @@
-# Modal vs local (project.md / visual dynamics)
+# Modal quick reference
 
-| Step | Local | Modal |
-|------|-------|-------|
-| PyBullet data | `generate_sphere_bounce_dataset.py` | — |
-| Upload batch | — | `--upload-batch` |
-| Perception cache | `extract_perception.py` | `--extract-perception` |
-| **Train dynamics** | `train_visual_dynamics.py` | **`--train-visual-dynamics`** |
-| 3DGS | `export_gs_blender_scene.py` | `--upload` + `--train` |
-| 4DGS | `export_4dgs_dataset.py` | `--upload-4d` + `--train-4d` |
-| E2E pipeline | `run_visual_dynamics_pipeline.py` | `--upload-visual-pipeline` + `--visual-pipeline` |
+Full workflow: **[`WORKFLOW_COMMANDS.md`](WORKFLOW_COMMANDS.md)**
 
-## Visual dynamics on Modal (recommended)
+## Visual dynamics (primary)
 
-```bash
-# 1) Upload 45-scene batch (+ manifest) to volume
-modal run modal_app.py --upload-batch
+| Step | Command |
+|------|---------|
+| Upload batch | `bash scripts/upload_batch_to_modal.sh` |
+| Perception | `modal run modal_app.py --extract-perception` |
+| Train | `modal run modal_app.py --train-visual-dynamics` |
+| Download ckpt | `modal volume get phys4d-gs-output visual_dynamics . --force` |
+| 3DGS | `modal run modal_app.py --upload` then `--train` |
+| E2E | `modal run modal_app.py --upload-visual-pipeline` then `--visual-pipeline` |
 
-# 2) Cache perception on GPU machine (states + t=0 visual features)
-modal run modal_app.py --extract-perception
+Avoid `modal run modal_app.py --upload-batch` on first run (slow image build); use the upload script.
 
-# 3) Train (A10G, ~hours depending on epochs in visual_dynamics.json)
-modal run modal_app.py --train-visual-dynamics
+## Optional 4DGS
 
-# 4) Download checkpoint
-modal volume get phys4d-gs-output visual_dynamics . --force
+`--upload-4d` → `--train-4d` → `--render-4d` → `--eval-4d`
 
-# 5) E2E demo scene (upload m2 + 3DGS + ckpt first)
-modal run modal_app.py --upload-visual-pipeline
-modal run modal_app.py --visual-pipeline
-```
-
-States-only ablation on Modal:
+## Tests / smoke
 
 ```bash
-modal run modal_app.py --train-visual-dynamics --visual-states-only
+modal run modal_app.py --tests
+modal run modal_app.py                    # GPU smoke only
 ```
-
-## Legacy param-ID (not project.md primary)
-
-`--train-param-id`, `--pipeline`, `--upload-pipeline`

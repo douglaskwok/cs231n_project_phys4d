@@ -13,7 +13,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from phys4d.camera_project import load_gs_cameras, mask_coverage_fraction  # noqa: E402
+from phys4d.camera_project import load_gs_cameras, mask_coverage_fraction_multiview  # noqa: E402
 from phys4d.gaussian_ply import (  # noqa: E402
     estimate_pb_to_gs_z_scale,
     filter_sphere_gaussians_by_opacity,
@@ -28,6 +28,15 @@ from phys4d.poses import load_object_poses_csv  # noqa: E402
 from phys4d.trajectory_eval import metrics_from_states  # noqa: E402
 from phys4d.visual_dynamics.rollout import load_model_checkpoint, rollout_scene  # noqa: E402
 from phys4d.visual_dynamics.scenes import SceneRecord  # noqa: E402
+
+
+def _report_path(path: Path) -> str:
+    """Path for JSON reports; works on Modal where scene_dir is outside /repo."""
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(REPO_ROOT.resolve()))
+    except ValueError:
+        return str(resolved)
 
 
 def _pred_trajectory_from_rollout(rows: np.ndarray, start_frame: int, dt_s: float):
@@ -147,14 +156,18 @@ def main() -> int:
             save_gaussian_ply(warped, ply_path)
             cov = None
             if masks_root.is_dir() and gs_cams:
-                cov = mask_coverage_fraction(
-                    warped.xyz, masks_root=masks_root, frame=fi, gs_cameras=gs_cams[:6]
+                cov = mask_coverage_fraction_multiview(
+                    warped.xyz,
+                    masks_root,
+                    fi,
+                    gs_cams,
+                    max_views=int(cfg["perception"]["max_views"]),
                 )
             render_proxy.append({"frame": fi, "mask_coverage": cov, "ply": str(ply_path.name)})
 
     report = {
-        "scene_dir": str(scene_dir.relative_to(REPO_ROOT)),
-        "checkpoint": str(args.checkpoint),
+        "scene_dir": _report_path(scene_dir),
+        "checkpoint": _report_path(args.checkpoint),
         "horizon": horizon,
         "trajectory_metrics_test": traj_metrics,
         "render_proxy": render_proxy,

@@ -230,6 +230,10 @@ metrics_4dgs.json
 latest/
 orbit_latest/
 
+# Visual dynamics checkpoints and E2E pipeline artifacts (Modal volume get)
+/visual_dynamics/
+/visual_dynamics_pipeline/
+
 # Teammate ping-pong exports (12-view set is tracked; ignore regenerated 10-view)
 pybullet_outputs/ping_pong_bounce_10view_*
 

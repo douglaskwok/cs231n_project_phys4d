@@ -52,6 +52,15 @@ def load_object_poses_csv(path: Path) -> ObjectPoseTrajectory:
     """Read ``object_poses.csv`` written by ``generate_sphere_bounce_dataset.py``."""
 
     path = path.resolve()
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    raw = path.read_text(encoding="utf-8")
+    if not raw.strip():
+        size = path.stat().st_size
+        raise ValueError(
+            f"{path} reads as empty (metadata size {size} B). "
+            "On iCloud/Desktop, download the file locally in Finder or regenerate the scene."
+        )
     poses: list[ObjectPose] = []
     with path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -69,8 +78,11 @@ def load_object_poses_csv(path: Path) -> ObjectPoseTrajectory:
             "vy_m_s",
             "vz_m_s",
         }
-        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
-            raise ValueError(f"CSV missing columns; need {sorted(required)}")
+        if reader.fieldnames is None or not required.issubset(set(reader.fieldnames)):
+            have = sorted(reader.fieldnames or [])
+            raise ValueError(
+                f"{path} missing columns; need {sorted(required)}; got {have}"
+            )
         for row in reader:
             poses.append(
                 ObjectPose(

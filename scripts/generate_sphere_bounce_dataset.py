@@ -74,10 +74,22 @@ def main() -> int:
         action="store_true",
         help="Print resolved paths and exit without simulating",
     )
+    parser.add_argument(
+        "--num-cameras",
+        type=int,
+        default=None,
+        help="Override cameras.num_cameras (ring layout, evenly spaced angles)",
+    )
     args = parser.parse_args()
 
     cfg_path = args.config.resolve()
     cfg = _load_config(cfg_path)
+    if args.num_cameras is not None:
+        n = int(args.num_cameras)
+        cfg.setdefault("cameras", {})["num_cameras"] = n
+        if n >= 10 and "train_cameras" not in cfg["cameras"]:
+            cfg["cameras"]["train_cameras"] = list(range(8))
+            cfg["cameras"]["test_cameras"] = [8, 9]
 
     out_rgb = REPO_ROOT / cfg["outputs"]["rgb_frames"]
     out_masks = REPO_ROOT / cfg["outputs"]["masks"]

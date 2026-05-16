@@ -130,62 +130,88 @@ def main() -> int:
     log: list[dict] = []
     grad_clip = float(tr["grad_clip"])
     w_phys = float(tr["w_physics"])
+    ckpt_name = "visual_dynamics.pt" if not args.no_visual else "visual_dynamics_states_only.pt"
+    ckpt_path = args.out_dir / ckpt_name
+    best_val = float("inf")
+    best_state: dict | None = None
 
-    # Stage A: one-step teacher forcing
-    for epoch in range(int(tr["epochs_stage_a"])):
+    def _save_checkpoint(state_dict: dict) -> None:
+        torch.save(
+            {
+                "model": state_dict,
+                "history": int(tcfg["history_K"]),
+                "visual_dim": int(cfg["perception"]["visual_dim"]),
+                "use_visual": not args.no_visual,
+                "train_end_frame": int(tcfg["train_frames"][1]),
+                "T_future": int(tcfg["T_future"]),
+            },
+            ckpt_path,
+        )
+
+    def _train_epoch() -> tuple[float, bool]:
         model.train()
         total = 0.0
         n = 0
+        bad = False
         for batch in loader:
             loss = _train_one_step_batch(model, batch, device, w_physics=w_phys)
+            if not torch.isfinite(loss):
+                bad = True
+                opt.zero_grad(set_to_none=True)
+                continue
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             opt.step()
             total += float(loss.item())
             n += 1
+        if n == 0:
+            return float("nan"), True
+        return total / n, bad
+
+    # Stage A: one-step teacher forcing
+    for epoch in range(int(tr["epochs_stage_a"])):
+        train_loss, bad_epoch = _train_epoch()
         val_mse = _eval_rollout_mse(model, val_scenes, cfg=cfg, device=device)
-        row = {"stage": "A", "epoch": epoch + 1, "train_loss": total / max(n, 1), "val_rollout_mse": val_mse}
+        row = {"stage": "A", "epoch": epoch + 1, "train_loss": train_loss, "val_rollout_mse": val_mse}
         log.append(row)
         print(row)
+        if bad_epoch or not torch.isfinite(torch.tensor(train_loss)):
+            print("Stage A: non-finite loss — stopping early.")
+            break
+        if val_mse < best_val:
+            best_val = val_mse
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
     # Stage B: longer rollout curriculum (noise on history during eval rollout only for now)
-    for horizon in tr["rollout_curriculum"]:
-        for epoch in range(int(tr["epochs_stage_b"]) // len(tr["rollout_curriculum"])):
-            model.train()
-            total = 0.0
-            n = 0
-            for batch in loader:
-                loss = _train_one_step_batch(model, batch, device, w_physics=w_phys)
-                opt.zero_grad(set_to_none=True)
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-                opt.step()
-                total += float(loss.item())
-                n += 1
-            val_mse = _eval_rollout_mse(model, val_scenes, cfg=cfg, device=device)
-            row = {
-                "stage": "B",
-                "horizon": horizon,
-                "epoch": epoch + 1,
-                "train_loss": total / max(n, 1),
-                "val_rollout_mse": val_mse,
-            }
-            log.append(row)
-            print(row)
+    stop_training = False
+    if best_state is not None and all(torch.isfinite(v).all() for v in model.state_dict().values()):
+        for horizon in tr["rollout_curriculum"]:
+            if stop_training:
+                break
+            for epoch in range(int(tr["epochs_stage_b"]) // len(tr["rollout_curriculum"])):
+                train_loss, bad_epoch = _train_epoch()
+                val_mse = _eval_rollout_mse(model, val_scenes, cfg=cfg, device=device)
+                row = {
+                    "stage": "B",
+                    "horizon": horizon,
+                    "epoch": epoch + 1,
+                    "train_loss": train_loss,
+                    "val_rollout_mse": val_mse,
+                }
+                log.append(row)
+                print(row)
+                if bad_epoch or not torch.isfinite(torch.tensor(train_loss)):
+                    print("Stage B: non-finite loss — stopping early.")
+                    stop_training = True
+                    break
+                if val_mse < best_val:
+                    best_val = val_mse
+                    best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
-    ckpt_path = args.out_dir / ("visual_dynamics.pt" if not args.no_visual else "visual_dynamics_states_only.pt")
-    torch.save(
-        {
-            "model": model.state_dict(),
-            "history": int(tcfg["history_K"]),
-            "visual_dim": int(cfg["perception"]["visual_dim"]),
-            "use_visual": not args.no_visual,
-            "train_end_frame": int(tcfg["train_frames"][1]),
-            "T_future": int(tcfg["T_future"]),
-        },
-        ckpt_path,
-    )
+    if best_state is None:
+        best_state = model.state_dict()
+    _save_checkpoint(best_state)
     with (args.out_dir / "train_log.json").open("w", encoding="utf-8") as f:
         json.dump(log, f, indent=2)
     print(f"Saved {ckpt_path}")
