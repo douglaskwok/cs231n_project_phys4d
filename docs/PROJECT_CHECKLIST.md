@@ -55,11 +55,19 @@ python scripts/build_param_id_splits.py
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 4.1 | Object→Gaussian mapping | [~] | `warp_gaussians_to_frame.py`, mask projection; cluster-by-t=0 TBD |
-| 4.2 | video → CNN → params | [ ] | `infer_param_predictor.py` TBD |
-| 4.3 | params → PyBullet rollout → trajectories | [ ] | reuse sim + predicted e,m,z |
-| 4.4 | SE(3) warp Gaussian clusters → render | [~] | static 3DGS warp exists; tie to CNN output |
-| 4.5 | One full demo E2E | [ ] | **M2 blocker** |
+| 4.1 | Object→Gaussian mapping | [~] | mask filter @ ref frame in pipeline |
+| 4.2 | video → CNN → params | [x] | `param_ident/inference.py`, `run_param_id_pipeline.py` |
+| 4.3 | params → PyBullet rollout → trajectories | [x] | `sim_rollout.py` → `object_poses_predicted.csv` |
+| 4.4 | SE(3) warp Gaussian clusters → render proxy | [x] | warped PLYs + mask coverage vs GT traj |
+| 4.5 | One full demo E2E | [~] | local or `modal run modal_app.py --pipeline` |
+| 4.6 | Full RGB render (PSNR) | [ ] | graphdeco render on Modal (stretch) |
+
+**Commands:**
+```bash
+python scripts/run_param_id_pipeline.py
+modal run modal_app.py --upload-pipeline
+modal run modal_app.py --pipeline
+```
 
 **4DGS perception (substrate):** `export_4dgs_dataset.py`, Modal `--train-4d`, `--render-4d`
 

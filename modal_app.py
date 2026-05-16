@@ -19,6 +19,9 @@ Modal:
   modal run modal_app.py --render-4d       # raster MP4 + PNGs (multi-cam + correct time t)
   modal run modal_app.py --render-4d-orbit # horizontal orbit MP4 (novel viewpoints)
   modal run modal_app.py --eval-4d        # PSNR/MAE vs GT (train + test splits)
+  modal run modal_app.py --train-param-id # CNN param predictor (GPU)
+  modal run modal_app.py --pipeline       # phase 4 E2E on volume data
+  modal run modal_app.py --upload-pipeline # upload scene + 3DGS for --pipeline
 """
 
 from __future__ import annotations
@@ -107,6 +110,35 @@ _test_image = _torch_image.add_local_dir(
     ignore=_repo_ignore,
 )
 
+# Param-ID CNN + phase-4 pipeline (PyBullet rollout + 3DGS warp).
+_ml_image = (
+    modal.Image.from_registry("pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime")
+    .apt_install("git", "build-essential", "libgl1", "libglib2.0-0")
+    .pip_install(
+        "numpy<2",
+        "imageio",
+        "torchvision",
+        "plyfile",
+        "opencv-python-headless",
+        "pybullet",
+    )
+    .add_local_dir(
+        str(REPO_ROOT / "src"),
+        remote_path="/repo/src",
+        ignore=["__pycache__", ".DS_Store"],
+    )
+    .add_local_dir(
+        str(REPO_ROOT / "scripts"),
+        remote_path="/repo/scripts",
+        ignore=["__pycache__", ".DS_Store"],
+    )
+    .add_local_dir(
+        str(REPO_ROOT / "configs"),
+        remote_path="/repo_configs",
+        ignore=["__pycache__", ".DS_Store"],
+    )
+)
+
 
 @app.function(image=_torch_image, gpu="T4", timeout=600)
 def smoke_gpu() -> dict[str, str]:
@@ -128,7 +160,14 @@ def run_phys_tests() -> str:
     os.chdir("/repo")
     env = {**os.environ, "PYTHONPATH": "/repo/src"}
     subprocess.run(
-        [sys.executable, "-m", "unittest", "tests/test_restitution_recovery.py", "-v"],
+        [
+            sys.executable,
+            "-m",
+            "unittest",
+            "tests/test_restitution_recovery.py",
+            "tests/test_param_ident_shapes.py",
+            "-v",
+        ],
         check=True,
         env=env,
     )
@@ -538,6 +577,118 @@ def eval_4dgs_metrics_remote(
     return f"4dgs metrics -> phys4d-gs-output:{out_json}\n{text}"
 
 
+@app.function(
+    image=_ml_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 6,
+)
+def train_param_predictor_remote(
+    manifest_rel: str = "param_id_dataset/dataset_manifest.json",
+    epochs: int = 50,
+    batch_size: int = 8,
+    lr: float = 1e-4,
+) -> str:
+    """Train param-ID CNN on /data/<manifest> (upload dataset + manifest first)."""
+    manifest = Path("/data") / manifest_rel
+    if not manifest.is_file():
+        raise FileNotFoundError(
+            f"No manifest at {manifest}. "
+            "Local: generate_param_id_batch.py + build_param_id_splits.py, then "
+            "modal volume put phys4d-gs-data outputs/param_id_dataset param_id_dataset"
+        )
+    out_dir = Path("/outputs/param_predictor")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "PYTHONPATH": "/repo/src"}
+    subprocess.run(
+        [
+            sys.executable,
+            "/repo/scripts/train_param_predictor.py",
+            "--manifest",
+            str(manifest),
+            "--data-root",
+            "/data",
+            "--epochs",
+            str(epochs),
+            "--batch-size",
+            str(batch_size),
+            "--lr",
+            str(lr),
+            "--out-dir",
+            str(out_dir),
+            "--device",
+            "cuda",
+        ],
+        check=True,
+        env=env,
+    )
+    output_volume.commit()
+    return f"param predictor -> phys4d-gs-output:{out_dir} (best + last .pt)"
+
+
+@app.function(
+    image=_ml_image,
+    gpu="T4",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60,
+)
+def run_param_id_pipeline_remote(
+    scene_rel: str = "scene",
+    config_name: str = "sphere_bounce_m2.json",
+    checkpoint_name: str = "param_predictor_best.pt",
+    ply_rel: str = "gs_sphere_bounce/point_cloud/iteration_7000/point_cloud.ply",
+    gs_cameras_rel: str = "gs_sphere_bounce/cameras.json",
+    out_rel: str = "param_id_pipeline",
+    eval_frames: str = "60,70,80",
+) -> str:
+    """Phase 4 on Modal: infer params, PyBullet rollout, warp 3DGS, mask proxy."""
+    scene_dir = Path("/data") / scene_rel
+    if not (scene_dir / "rgb").is_dir():
+        raise FileNotFoundError(
+            f"No scene RGB at {scene_dir}. Run: modal run modal_app.py --upload-pipeline"
+        )
+    ckpt = Path("/outputs/param_predictor") / checkpoint_name
+    if not ckpt.is_file():
+        raise FileNotFoundError(
+            f"No checkpoint {ckpt}. Run: modal run modal_app.py --train-param-id "
+            "or upload outputs/param_predictor to the output volume."
+        )
+    ply = Path("/outputs") / ply_rel
+    if not ply.is_file():
+        raise FileNotFoundError(
+            f"No 3DGS PLY at {ply}. Run --upload && --train (3DGS) first."
+        )
+    gs_cams = Path("/outputs") / gs_cameras_rel
+    cfg = Path("/repo_configs") / config_name
+    out_dir = Path("/outputs") / out_rel
+    env = {**os.environ, "PYTHONPATH": "/repo/src"}
+    cmd = [
+        sys.executable,
+        "/repo/scripts/run_param_id_pipeline.py",
+        "--scene-dir",
+        str(scene_dir),
+        "--config",
+        str(cfg),
+        "--checkpoint",
+        str(ckpt),
+        "--ply",
+        str(ply),
+        "--out-dir",
+        str(out_dir),
+        "--device",
+        "cuda",
+        "--eval-frames",
+        eval_frames,
+    ]
+    if gs_cams.is_file():
+        cmd += ["--gs-cameras", str(gs_cams)]
+    subprocess.run(cmd, check=True, env=env)
+    output_volume.commit()
+    report = out_dir / "pipeline_report.json"
+    text = report.read_text(encoding="utf-8") if report.is_file() else "(no report)"
+    return f"pipeline -> phys4d-gs-output:{out_dir}\n{text}"
+
+
 @app.local_entrypoint()
 def main(
     tests: bool = False,
@@ -549,6 +700,13 @@ def main(
     render_4d: bool = False,
     render_4d_orbit: bool = False,
     eval_4d: bool = False,
+    train_param_id: bool = False,
+    pipeline: bool = False,
+    upload_pipeline: bool = False,
+    param_id_manifest: str = "param_id_dataset/dataset_manifest.json",
+    param_id_epochs: int = 50,
+    pipeline_scene_rel: str = "scene",
+    pipeline_out_rel: str = "param_id_pipeline",
     render_4d_checkpoint: str | None = None,
     render_fps: float = 60.0,
     render_dry_run_max: int = 0,
@@ -668,6 +826,91 @@ def main(
         )
         print(
             "Full JSON: modal volume get phys4d-gs-output 4dgs_eval/metrics_4dgs.json . --force"
+        )
+        return
+    if upload_pipeline:
+        scene_src = REPO_ROOT / "outputs" / "sphere_bounce_m2"
+        if not (scene_src / "rgb").is_dir():
+            raise FileNotFoundError(
+                f"Missing {scene_src}. Run: python scripts/generate_sphere_bounce_dataset.py"
+            )
+        subprocess.run(
+            ["modal", "volume", "rm", "phys4d-gs-data", "scene", "-r"],
+            check=False,
+        )
+        subprocess.run(
+            ["modal", "volume", "put", "phys4d-gs-data", str(scene_src), "scene"],
+            check=True,
+        )
+        ckpt_local = REPO_ROOT / "outputs" / "param_predictor" / "param_predictor_best.pt"
+        if ckpt_local.is_file():
+            subprocess.run(
+                [
+                    "modal",
+                    "volume",
+                    "put",
+                    "phys4d-gs-output",
+                    str(ckpt_local),
+                    "param_predictor/param_predictor_best.pt",
+                ],
+                check=True,
+            )
+        gs_local = REPO_ROOT / "gs_sphere_bounce"
+        if (gs_local / "point_cloud").is_dir():
+            subprocess.run(
+                ["modal", "volume", "put", "phys4d-gs-output", str(gs_local), "gs_sphere_bounce"],
+                check=True,
+            )
+        print(
+            "Uploaded scene -> phys4d-gs-data:/scene\n"
+            "Optional: param_predictor checkpoint + gs_sphere_bounce on output volume.\n"
+            "Then: modal run modal_app.py --pipeline"
+        )
+        return
+    if train_param_id:
+        manifest_local = REPO_ROOT / "outputs" / "param_id_dataset" / "dataset_manifest.json"
+        if manifest_local.is_file():
+            subprocess.run(
+                [
+                    "modal",
+                    "volume",
+                    "rm",
+                    "phys4d-gs-data",
+                    "param_id_dataset",
+                    "-r",
+                ],
+                check=False,
+            )
+            subprocess.run(
+                [
+                    "modal",
+                    "volume",
+                    "put",
+                    "phys4d-gs-data",
+                    str(manifest_local.parent),
+                    "param_id_dataset",
+                ],
+                check=True,
+            )
+        print(
+            train_param_predictor_remote.remote(
+                manifest_rel=param_id_manifest,
+                epochs=param_id_epochs,
+            )
+        )
+        print(
+            "Download: modal volume get phys4d-gs-output param_predictor . --force"
+        )
+        return
+    if pipeline:
+        print(
+            run_param_id_pipeline_remote.remote(
+                scene_rel=pipeline_scene_rel,
+                out_rel=pipeline_out_rel,
+            )
+        )
+        print(
+            f"Download: modal volume get phys4d-gs-output {pipeline_out_rel} . --force"
         )
         return
     print(smoke_gpu.remote())

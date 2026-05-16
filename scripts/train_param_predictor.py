@@ -50,6 +50,12 @@ def main() -> int:
         type=Path,
         default=REPO_ROOT / "outputs/param_id_dataset/dataset_manifest.json",
     )
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=REPO_ROOT / "outputs",
+        help="Parent of batch_root/ (REPO/outputs locally, /data on Modal)",
+    )
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -69,10 +75,10 @@ def main() -> int:
             "  python scripts/build_param_id_splits.py"
         )
 
-    train_scenes = load_manifest(args.manifest, "train")
-    val_scenes = load_manifest(args.manifest, "val")
-    train_ds = ParamIdDataset(train_scenes, repo_root=REPO_ROOT, augment=True)
-    val_ds = ParamIdDataset(val_scenes, repo_root=REPO_ROOT, augment=False)
+    train_scenes = load_manifest(args.manifest, "train", data_root=args.data_root)
+    val_scenes = load_manifest(args.manifest, "val", data_root=args.data_root)
+    train_ds = ParamIdDataset(train_scenes, augment=True)
+    val_ds = ParamIdDataset(val_scenes, augment=False)
     train_loader = DataLoader(
         train_ds,
         batch_size=args.batch_size,

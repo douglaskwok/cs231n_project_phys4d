@@ -41,4 +41,12 @@ modal run modal_app.py --upload-4d
 modal run modal_app.py --train-4d
 ```
 
-See [`docs/modal.md`](docs/modal.md).
+See [`docs/modal.md`](docs/modal.md) and [`docs/modal_scripts.md`](docs/modal_scripts.md) (what runs locally vs Modal).
+
+## Phase 4 (E2E)
+
+```bash
+python scripts/run_param_id_pipeline.py
+# or on Modal after --upload-pipeline:
+modal run modal_app.py --pipeline
+```

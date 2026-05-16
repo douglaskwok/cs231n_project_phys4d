@@ -21,16 +21,32 @@ class SceneSample:
     param_vector: np.ndarray
 
 
-def load_manifest(manifest_path: Path, split: str) -> list[SceneSample]:
+def resolve_scene_dir(data_root: Path, manifest: dict, scene_id: str) -> Path:
+    batch_root = Path(manifest["batch_root"])
+    return (data_root / batch_root / scene_id).resolve()
+
+
+def load_manifest(
+    manifest_path: Path,
+    split: str,
+    *,
+    data_root: Path | None = None,
+) -> list[SceneSample]:
     with manifest_path.open("r", encoding="utf-8") as f:
         data = json.load(f)
+    root = (data_root or (manifest_path.parent.parent)).resolve()
     rows = data["splits"][split]
     samples: list[SceneSample] = []
     for row in rows:
+        scene_id = row["scene_id"]
+        if "scene_dir" in row:
+            scene_dir = (root / row["scene_dir"]).resolve()
+        else:
+            scene_dir = resolve_scene_dir(root, data, scene_id)
         samples.append(
             SceneSample(
-                scene_id=row["scene_id"],
-                scene_dir=Path(row["scene_dir"]),
+                scene_id=scene_id,
+                scene_dir=scene_dir,
                 param_vector=np.array(row["param_vector"], dtype=np.float32),
             )
         )
@@ -42,7 +58,6 @@ class ParamIdDataset(Dataset):
         self,
         scenes: list[SceneSample],
         *,
-        repo_root: Path,
         num_frames: int = 16,
         frame_stride: int = 2,
         image_size: int = 128,
@@ -50,7 +65,6 @@ class ParamIdDataset(Dataset):
         max_views: int = 10,
         augment: bool = False,
     ) -> None:
-        self.repo_root = repo_root.resolve()
         self.num_frames = num_frames
         self.frame_stride = frame_stride
         self.image_size = image_size
@@ -90,7 +104,7 @@ class ParamIdDataset(Dataset):
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         scene = self.scenes[index]
-        root = (self.repo_root / scene.scene_dir).resolve()
+        root = scene.scene_dir.resolve()
         rgb_root = root / "rgb"
         mask_root = root / "masks"
         cams = sorted(p.name for p in rgb_root.iterdir() if p.is_dir())

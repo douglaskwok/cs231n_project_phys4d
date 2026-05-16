@@ -41,7 +41,6 @@ def discover_scenes(batch_root: Path) -> list[dict]:
         scenes.append(
             {
                 "scene_id": scene_dir.name,
-                "scene_dir": str(scene_dir.relative_to(REPO_ROOT)),
                 "param_names": PREDICT_NAMES,
                 "param_vector": target,
                 "restitution": target[0],
@@ -98,7 +97,7 @@ def main() -> int:
     buckets = assign_splits(scenes, manifest["split_ratios"], int(manifest.get("seed", 42)))
     out_path = args.out or (batch_root / "dataset_manifest.json")
     payload = {
-        "batch_root": str(batch_root.relative_to(REPO_ROOT)),
+        "batch_root": batch_root.name,
         "predict_names": PREDICT_NAMES,
         "num_scenes": len(scenes),
         "split_ratios": manifest["split_ratios"],
