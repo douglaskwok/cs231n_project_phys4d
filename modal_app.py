@@ -19,10 +19,12 @@ Modal:
   modal run modal_app.py --render-4d       # raster MP4 + PNGs (multi-cam + correct time t)
   modal run modal_app.py --render-4d-orbit # horizontal orbit MP4 (novel viewpoints)
   modal run modal_app.py --eval-4d        # PSNR/MAE vs GT (train + test splits)
+  modal run modal_app.py --batch-4d-smoke # upload+train 4DGS on 5 batch scenes (smoke yaml)
 """
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -181,23 +183,19 @@ def train_gs(iterations: int = 7000) -> str:
     return f"trained -> volume phys4d-gs-output:{model_dir} ({last})"
 
 
-@app.function(
-    image=_4dgs_image,
-    gpu="A10G",
-    volumes={"/data": data_volume, "/outputs": output_volume},
-    timeout=60 * 60 * 6,
-)
-def train_4dgs(config_name: str = "sphere_bounce_4dgs.yaml") -> str:
-    """Train fudan 4DGS on /data/4d_scene (DyNeRF export from PyBullet)."""
+def _train_4dgs_on_paths(
+    scene: Path,
+    model_dir: Path,
+    config_name: str,
+) -> str:
+    """Shared fudan 4DGS train + PLY export (used by single-scene and batch jobs)."""
     import shutil
+    import sys
 
     from omegaconf import OmegaConf
 
-    scene = Path("/data/4d_scene")
     if not (scene / "transforms_train.json").is_file():
-        raise FileNotFoundError(
-            "No 4D scene at /data/4d_scene. Run: modal run modal_app.py --upload-4d"
-        )
+        raise FileNotFoundError(f"No DyNeRF scene at {scene}")
 
     cfg_src = Path("/repo_configs") / config_name
     if not cfg_src.is_file():
@@ -205,7 +203,6 @@ def train_4dgs(config_name: str = "sphere_bounce_4dgs.yaml") -> str:
 
     cfg = OmegaConf.load(cfg_src)
     cfg.ModelParams.source_path = str(scene)
-    model_dir = Path("/outputs/4dgs_sphere_bounce")
     if model_dir.exists():
         shutil.rmtree(model_dir)
     cfg.ModelParams.model_path = str(model_dir)
@@ -218,8 +215,6 @@ def train_4dgs(config_name: str = "sphere_bounce_4dgs.yaml") -> str:
         check=True,
         cwd="/opt/4dgs",
     )
-
-    import sys
 
     sys.path.insert(0, "/repo/scripts")
     from export_4dgs_ply import export_checkpoint_to_ply
@@ -247,6 +242,57 @@ def train_4dgs(config_name: str = "sphere_bounce_4dgs.yaml") -> str:
         f"4dgs trained -> phys4d-gs-output:{model_dir} "
         f"checkpoints={on_vol}. {ply_note}"
     )
+
+
+@app.function(
+    image=_4dgs_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 6,
+)
+def train_4dgs(config_name: str = "sphere_bounce_4dgs.yaml") -> str:
+    """Train fudan 4DGS on /data/4d_scene (DyNeRF export from PyBullet)."""
+    scene = Path("/data/4d_scene")
+    if not (scene / "transforms_train.json").is_file():
+        raise FileNotFoundError(
+            "No 4D scene at /data/4d_scene. Run: modal run modal_app.py --upload-4d"
+        )
+    return _train_4dgs_on_paths(scene, Path("/outputs/4dgs_sphere_bounce"), config_name)
+
+
+@app.function(
+    image=_4dgs_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 4,
+)
+def train_4dgs_scene(
+    scene_id: str,
+    config_name: str = "sphere_bounce_4dgs_smoke.yaml",
+) -> str:
+    """Train 4DGS on /data/4d_batch/<scene_id> -> /outputs/4dgs_batch/<scene_id>."""
+    scene = Path("/data/4d_batch") / scene_id
+    model_dir = Path("/outputs/4dgs_batch") / scene_id
+    return _train_4dgs_on_paths(scene, model_dir, config_name)
+
+
+@app.function(
+    image=_4dgs_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 12,
+)
+def train_4dgs_batch_smoke(
+    scene_ids: list[str],
+    config_name: str = "sphere_bounce_4dgs_smoke.yaml",
+) -> list[str]:
+    """Train multiple batch scenes sequentially in one container."""
+    results: list[str] = []
+    for sid in scene_ids:
+        scene = Path("/data/4d_batch") / sid
+        model_dir = Path("/outputs/4dgs_batch") / sid
+        results.append(_train_4dgs_on_paths(scene, model_dir, config_name))
+    return results
 
 
 @app.function(
@@ -516,6 +562,45 @@ def eval_4dgs_metrics_remote(
     return f"4dgs metrics -> phys4d-gs-output:{out_json}\n{text}"
 
 
+def _pick_batch_smoke_scene_ids(n: int = 5) -> list[str]:
+    manifest_path = REPO_ROOT / "outputs/sphere_bounce_batch_dynerf/batch_manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(
+            f"Missing {manifest_path}. Run: python scripts/export_4dgs_batch.py --symlink"
+        )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    scenes = manifest.get("scenes", [])
+    preferred = [
+        s["scene_id"]
+        for s in scenes
+        if abs(float(s.get("restitution", 0)) - 0.75) < 0.02
+        and abs(float(s.get("mass_kg", 0)) - 1.0) < 0.05
+    ]
+    ids = preferred[:n]
+    for s in scenes:
+        sid = s["scene_id"]
+        if sid not in ids:
+            ids.append(sid)
+        if len(ids) >= n:
+            break
+    return ids[:n]
+
+
+def _upload_batch_scene_to_volume(scene_id: str, dynerf_root: Path) -> None:
+    src = dynerf_root / scene_id
+    if not (src / "transforms_train.json").is_file():
+        raise FileNotFoundError(f"Missing DyNeRF export: {src}")
+    remote = f"4d_batch/{scene_id}"
+    subprocess.run(
+        ["modal", "volume", "rm", "phys4d-gs-data", remote, "-r"],
+        check=False,
+    )
+    subprocess.run(
+        ["modal", "volume", "put", "phys4d-gs-data", str(src), remote],
+        check=True,
+    )
+
+
 @app.local_entrypoint()
 def main(
     tests: bool = False,
@@ -523,6 +608,8 @@ def main(
     train: bool = False,
     upload_4d: bool = False,
     train_4d: bool = False,
+    batch_4d_smoke: bool = False,
+    batch_4d_scene_ids: str = "",
     export_4d_ply: bool = False,
     render_4d: bool = False,
     render_4d_orbit: bool = False,
@@ -536,6 +623,7 @@ def main(
     eval_4d_dry_run_max: int = 0,
     frame: int = 0,
     iterations: int = 7000,
+    batch_4d_config: str = "sphere_bounce_4dgs_smoke.yaml",
 ) -> None:
     if tests:
         print(run_phys_tests.remote())
@@ -600,6 +688,27 @@ def main(
             "Export PLY: modal run modal_app.py --export-4d-ply\n"
             "Download: modal volume get phys4d-gs-output 4dgs_sphere_bounce . --force\n"
             "  View: 4dgs_sphere_bounce/point_cloud/exported/point_cloud.ply"
+        )
+        return
+    if batch_4d_smoke:
+        dynerf_root = REPO_ROOT / "outputs/sphere_bounce_batch_dynerf"
+        if batch_4d_scene_ids.strip():
+            scene_ids = [s.strip() for s in batch_4d_scene_ids.split(",") if s.strip()]
+        else:
+            scene_ids = _pick_batch_smoke_scene_ids(5)
+        print(f"Batch 4DGS smoke scenes ({len(scene_ids)}): {scene_ids}")
+        for sid in scene_ids:
+            print(f"Uploading {sid}...")
+            _upload_batch_scene_to_volume(sid, dynerf_root)
+        print(
+            train_4dgs_batch_smoke.remote(
+                scene_ids=scene_ids,
+                config_name=batch_4d_config,
+            )
+        )
+        print(
+            "Download: modal volume get phys4d-gs-output 4dgs_batch . --force\n"
+            "Per scene: 4dgs_batch/<scene_id>/chkpnt*.pth"
         )
         return
     if export_4d_ply:

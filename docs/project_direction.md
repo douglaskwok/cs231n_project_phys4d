@@ -81,15 +81,23 @@ python scripts/train_visual_dynamics.py --epochs 40
 # 5) Baselines table (temporal split, frames 60–89)
 python scripts/run_extrapolation_baselines.py
 # → outputs/extrapolation_baselines.md
+
+# 6) Extrapolation render proxies (warp 3DGS + mask coverage + crop MAE)
+python scripts/eval_extrapolation_render.py
+# → outputs/extrapolation_render.json
+
+# 7) Modal batch 4DGS smoke (5 scenes, 5k iters each — needs credits)
+modal run modal_app.py --batch-4d-smoke
+# → phys4d-gs-output/4dgs_batch/<scene_id>/
 ```
 
 ## Near-term milestones
 
 | Week | Deliverable |
 |------|-------------|
-| 1 | ~~Batch manifest + baselines~~ (done on branch) |
-| 2 | Modal 4DGS on batch manifest; log PSNR per scene |
-| 3 | \(L_\text{render}\): warp Gaussians with predicted poses vs held-out RGB |
+| 1 | ~~Batch manifest + baselines~~ (done) |
+| 2 | Modal 4DGS on batch manifest (`--batch-4d-smoke`) |
+| 3 | ~~\(L_\text{render}\) proxy~~ (`eval_extrapolation_render.py`); full rasterizer PSNR next |
 | 4 | Ablations: physics-only vs visual-only vs combined |
 
 ## Eval splits (explicit)
