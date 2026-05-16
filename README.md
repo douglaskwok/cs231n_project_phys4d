@@ -2,6 +2,8 @@
 
 Focused scaffold for CS231N Phys4D: **4DGS perception + learned visual dynamics** to predict motion beyond observed video. See [`docs/project_direction.md`](docs/project_direction.md) for the current framing; [`docs/project_claim.md`](docs/project_claim.md) for the original M2 inverse-ID claim.
 
+**Progress checklist (agents: read/update every session):** [`docs/PROJECT_CHECKLIST.md`](docs/PROJECT_CHECKLIST.md)
+
 ## Milestone 2 Artifacts
 
 - `docs/project_claim.md`: concise novelty framing against 4DGS, PhysGaussian, and GASP.

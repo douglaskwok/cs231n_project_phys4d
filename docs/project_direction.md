@@ -1,5 +1,7 @@
 # Project direction (reframe, May 2026)
 
+**Implementation status:** [`PROJECT_CHECKLIST.md`](PROJECT_CHECKLIST.md) — living checklist; agents must update after each session (see `.cursor/rules/phys4d-project-checklist.mdc`).
+
 ## One paragraph (team circulation)
 
 We take multi-view video of a dynamic scene, reconstruct it with **4D Gaussian Splatting** (perception + differentiable renderer), extract per-object states (position, orientation, velocity) and appearance features from the training views, then train a **visually conditioned dynamics model** that autoregressively predicts future object states from past states and visual context. Predicted rigid transforms are applied to the reconstructed Gaussians and re-rendered; evaluation is **image-based on held-out future frames** (second half of each clip), not just trajectory MSE. The contribution is **learned visual dynamics for Gaussian-rendered scenes**: extrapolating motion beyond the observed video, which vanilla 4DGS does not target and PhysGaussian does not invert from video. Physics enters as optional regularizers (energy, momentum, non-penetration) with ablations, not as the headline. **Cross-scene training** on many PyBullet bounces with varied mass and restitution is the default regime; 4DGS + Modal stay the perception stack, using upstream **git** implementations ([graphdeco-inria/gaussian-splatting](https://github.com/graphdeco-inria/gaussian-splatting), [fudan-zvg/4d-gaussian-splatting](https://github.com/fudan-zvg/4d-gaussian-splatting)) on our exported data.

@@ -25,6 +25,7 @@ Modal:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -210,10 +211,18 @@ def _train_4dgs_on_paths(
     cfg_path = Path("/tmp/train_4dgs.yaml")
     OmegaConf.save(cfg, cfg_path)
 
+    # fudan train loads torch after building CUDA ext with libgomp; MKL_INTEL vs GNU OpenMP
+    # can make train.py exit 1 even after "Training complete". Force Intel layer.
+    train_env = {
+        **os.environ,
+        "MKL_SERVICE_FORCE_INTEL": "1",
+        "MKL_THREADING_LAYER": "INTEL",
+    }
     subprocess.run(
         ["python", "/opt/4dgs/train.py", "--config", str(cfg_path)],
         check=True,
         cwd="/opt/4dgs",
+        env=train_env,
     )
 
     sys.path.insert(0, "/repo/scripts")
@@ -231,8 +240,11 @@ def _train_4dgs_on_paths(
 
     ply_out = model_dir / "point_cloud" / "exported" / "point_cloud.ply"
     if ckpt is not None:
-        meta = export_checkpoint_to_ply(ckpt, ply_out)
-        ply_note = f"PLY @ iter {meta['iteration']} -> {ply_out.name}"
+        try:
+            meta = export_checkpoint_to_ply(ckpt, ply_out)
+            ply_note = f"PLY @ iter {meta['iteration']} -> {ply_out.name}"
+        except Exception as exc:  # noqa: BLE001 — optional SuperSplat export
+            ply_note = f"PLY export skipped ({exc})"
     else:
         ply_note = "no checkpoint found for PLY export"
 
@@ -291,7 +303,11 @@ def train_4dgs_batch_smoke(
     for sid in scene_ids:
         scene = Path("/data/4d_batch") / sid
         model_dir = Path("/outputs/4dgs_batch") / sid
-        results.append(_train_4dgs_on_paths(scene, model_dir, config_name))
+        try:
+            results.append(_train_4dgs_on_paths(scene, model_dir, config_name))
+        except Exception as exc:  # noqa: BLE001 — finish remaining scenes
+            output_volume.commit()
+            results.append(f"FAILED {sid}: {exc}")
     return results
 
 
