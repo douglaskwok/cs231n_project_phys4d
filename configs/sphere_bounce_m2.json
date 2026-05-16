@@ -40,10 +40,10 @@
     "test_horizon_s": 0.5
   },
   "cameras": {
-    "num_cameras": 6,
+    "num_cameras": 10,
     "layout": "ring_around_origin",
-    "train_cameras": [0, 1, 2, 3],
-    "test_cameras": [4, 5],
+    "train_cameras": [0, 1, 2, 3, 4, 5, 6, 7],
+    "test_cameras": [8, 9],
     "image_size": [256, 256],
     "look_at_m": [0.0, 0.0, 0.5],
     "radius_m": 2.0,

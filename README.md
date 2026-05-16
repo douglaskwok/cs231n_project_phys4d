@@ -1,70 +1,44 @@
 # cs231n_project_phys4d
 
-Focused scaffold for CS231N Phys4D: **4DGS perception + learned visual dynamics** to predict motion beyond observed video. See [`docs/project_direction.md`](docs/project_direction.md) for the current framing; [`docs/project_claim.md`](docs/project_claim.md) for the original M2 inverse-ID claim.
+**Inverse physics from multi-view video:** PyBullet data → CNN predicts physical parameters → sim rollout → warp 3D/4D Gaussians → render.
 
-**Progress checklist (agents: read/update every session):** [`docs/PROJECT_CHECKLIST.md`](docs/PROJECT_CHECKLIST.md)
+**M2 checklist (deck spine):** [`docs/PROJECT_CHECKLIST.md`](docs/PROJECT_CHECKLIST.md)  
+**Direction:** [`docs/project_direction.md`](docs/project_direction.md)  
+**Original claim:** [`docs/project_claim.md`](docs/project_claim.md)
 
-## Milestone 2 Artifacts
-
-- `docs/project_claim.md`: concise novelty framing against 4DGS, PhysGaussian, and GASP.
-- `docs/method_equations.md`: slide-ready equations for object Gaussians, rigid state, pose transforms, bounce dynamics, rendering loss, physics losses, and staged optimization.
-- `docs/milestone2_slides.md`: 7-slide outline for the milestone presentation.
-- `configs/sphere_bounce_m2.json`: locked first experiment spec for a single PyBullet sphere-ground bounce with known masks and poses.
-- `scripts/generate_sphere_bounce_dataset.py`: PyBullet multi-view RGB, segmentation masks, camera JSON, and sphere pose CSV (see `docs/PROGRESS.md`).
-- `scripts/export_gs_blender_scene.py`: packages **your** `rgb/cam*/frame*.png` + `cameras.json` into a 3DGS Blender folder (`transforms_train.json` + `train/*.png`).
-- `scripts/export_nerf_transforms.py`: writes `transforms_train_static.json` (NeRF-style cameras + paths) for one timestep — input toward 3DGS / NeRF forks.
-- `scripts/recover_restitution_from_poses.py`: fits the toy 1D bounce to **PyBullet** `z_m` from `object_poses.csv` (bridges sim logs to optimization; expect bias vs true `e` until the sim matches PyBullet or you use pixels).
-- `scripts/warp_gaussians_to_frame.py`: rigidly warps trained 3DGS to a target frame via `object_poses.csv`.
-- `scripts/eval_physics_trajectory_split.py`: fit restitution on train frames, MSE on held-out test frames.
-- `scripts/eval_warped_mask_coverage.py`: project warped sphere Gaussians into masks (proxy for render alignment).
-- `src/phys4d/differentiable_bounce.py`: minimal PyTorch differentiable bounce simulator and restitution recovery helper.
-- `scripts/recover_restitution.py`: synthetic restitution recovery demo.
-- `tests/test_restitution_recovery.py`: `unittest` checks for gradient flow and recovery accuracy.
-- `modal_app.py` + `docs/modal.md`: Modal GPU smoke test and remote unittest (`pip install -r requirements-modal.txt`, `modal setup`).
-
-**Start here:** [`docs/WORKFLOW.md`](docs/WORKFLOW.md) — full pipeline (datagen → Modal 3DGS → SuperSplat).
-
-## Quick Checks
-
-Use one Python that has **both** `torch` and `pybullet` (on macOS, `conda install -c conda-forge pybullet` is often easier than `pip install pybullet`). If `import torch` fails with a NumPy `_ARRAY_API` error, pin **`numpy<2`**.
+## Quick start
 
 ```bash
-conda activate phys4d   # or your env with torch + pybullet
-python scripts/recover_restitution.py
-python -m unittest tests/test_restitution_recovery.py
+conda activate phys4d   # torch + pybullet + imageio
+python -m unittest tests/test_param_ident_shapes.py
+
+# Phase 1 — data (smoke: 5 scenes)
+python scripts/generate_param_id_batch.py --limit 5
+python scripts/build_param_id_splits.py
+
+# Phase 2–3 — train CNN
+python scripts/train_param_predictor.py --epochs 50
 ```
 
-Dataset export (needs `pybullet`, `numpy`, `imageio` — see `requirements-m2.txt` or your project venv):
+## Core scripts
+
+| Script | Purpose |
+|--------|---------|
+| `generate_sphere_bounce_dataset.py` | Single-scene PyBullet RGB + masks + poses + `physics_params.json` |
+| `generate_param_id_batch.py` | 150 randomized scenes (configurable) |
+| `build_param_id_splits.py` | 80/10/10 `dataset_manifest.json` |
+| `train_param_predictor.py` | ResNet18 + Transformer param regression |
+| `export_4dgs_dataset.py` | DyNeRF export for 4DGS (phase 4 substrate) |
+| `warp_gaussians_to_frame.py` | Rigid warp static 3DGS with object poses |
+| `modal_app.py` | GPU 3DGS / 4DGS train + render |
+
+## Modal
 
 ```bash
-python scripts/generate_sphere_bounce_dataset.py
-# or: python scripts/generate_sphere_bounce_dataset.py --dry-run
+pip install -r requirements-modal.txt && modal setup
+python scripts/export_4dgs_dataset.py
+modal run modal_app.py --upload-4d
+modal run modal_app.py --train-4d
 ```
 
-If imports fail: `pip install -r requirements-m2.txt`.
-
-## Vision bridge (after dataset exists)
-
-```bash
-python scripts/export_nerf_transforms.py
-python scripts/recover_restitution_from_poses.py
-```
-
-`export_nerf_transforms.py` writes `outputs/sphere_bounce_m2/transforms_train_static.json` next to `rgb/`. Point your **3DGS / NeRF / Nerfstudio** workflow at that folder (you may still need COLMAP conversion depending on the repo).
-
-**Next external step:** clone [graphdeco-inria/gaussian-splatting](https://github.com/graphdeco-inria/gaussian-splatting) (or your chosen 4DGS fork), run on a GPU machine, and feed either COLMAP from these views or a fork that reads `transforms*.json`.
-
-## Modal (cloud GPU — team credits)
-
-See **`docs/modal.md`**. Quick start:
-
-```bash
-pip install -r requirements-modal.txt
-modal setup
-python scripts/generate_sphere_bounce_dataset.py
-python scripts/export_gs_blender_scene.py
-modal run modal_app.py --upload    # uploads your PNGs to Modal Volume
-modal run modal_app.py --train     # 3DGS on those images (one timestep, 6 views)
-```
-
-**Uses your generated RGB**, not synthetic placeholders. Default training is **static** (frame 0 only); full bounce video needs 4DGS later.
+See [`docs/modal.md`](docs/modal.md).

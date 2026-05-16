@@ -1,23 +1,21 @@
 #!/usr/bin/env python
-"""Generate many sphere-bounce scenes with varied physics for cross-scene training.
+"""Generate many randomized sphere-bounce scenes for param-ID training.
 
-Reads ``configs/cross_scene_batch.json``, materializes per-scene JSON configs under
-``outputs/sphere_bounce_batch/<scene_id>/config.json``, and invokes
-``generate_sphere_bounce_dataset.py`` for each.
-
-One scene is a few seconds on CPU; 50–100 scenes overnight is realistic.
+Reads ``configs/param_id_dataset.json``, samples physics parameters, writes per-scene
+configs under ``outputs/param_id_dataset/``, and invokes ``generate_sphere_bounce_dataset.py``.
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
-import itertools
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,18 +25,19 @@ def _load_json(path: Path) -> dict:
         return json.load(f)
 
 
-def _scene_grid(manifest: dict) -> list[dict]:
-    grid = manifest["grid"]
-    keys = ["restitution", "mass_kg", "drop_z_m"]
-    combos = []
-    for e, m, z in itertools.product(
-        grid["restitution"],
-        grid["mass_kg"],
-        grid["drop_z_m"],
-    ):
-        combos.append({"restitution": e, "mass_kg": m, "drop_z_m": z})
-    max_n = int(manifest.get("max_scenes", len(combos)))
-    return combos[:max_n]
+def _sample_params(manifest: dict, rng: np.random.Generator) -> list[dict]:
+    n = int(manifest["target_scenes"])
+    s = manifest["sampling"]
+    rows: list[dict] = []
+    for _ in range(n):
+        rows.append(
+            {
+                "restitution": float(rng.uniform(s["restitution"]["min"], s["restitution"]["max"])),
+                "mass_kg": float(rng.uniform(s["mass_kg"]["min"], s["mass_kg"]["max"])),
+                "drop_z_m": float(rng.uniform(s["drop_z_m"]["min"], s["drop_z_m"]["max"])),
+            }
+        )
+    return rows
 
 
 def _apply_physics(base: dict, restitution: float, mass_kg: float, drop_z_m: float) -> dict:
@@ -63,32 +62,21 @@ def main() -> int:
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=REPO_ROOT / "configs" / "cross_scene_batch.json",
+        default=REPO_ROOT / "configs" / "param_id_dataset.json",
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="List scenes and paths only",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="Cap number of scenes (overrides manifest max_scenes)",
-    )
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()
 
     manifest = _load_json(args.manifest.resolve())
-    base_path = REPO_ROOT / manifest["base_config"]
-    base_cfg = _load_json(base_path)
+    base_cfg = _load_json(REPO_ROOT / manifest["base_config"])
     batch_root = REPO_ROOT / manifest["batch_root"]
-    grid = _scene_grid(manifest)
+    rng = np.random.default_rng(int(manifest.get("seed", 42)))
+    grid = _sample_params(manifest, rng)
     if args.limit is not None:
         grid = grid[: args.limit]
 
     gen_script = REPO_ROOT / "scripts" / "generate_sphere_bounce_dataset.py"
-    planned: list[tuple[str, Path]] = []
-
     for i, params in enumerate(grid):
         name = _scene_name(manifest, i, params)
         scene_dir = batch_root / name
@@ -109,27 +97,24 @@ def main() -> int:
             "recovery_report": f"{rel}/restitution_recovery.json",
         }
         cfg_path = scene_dir / "config.json"
-        planned.append((name, cfg_path))
         if args.dry_run:
+            print(f"[{i + 1}/{len(grid)}] {name} -> {cfg_path}")
             continue
         scene_dir.mkdir(parents=True, exist_ok=True)
         with cfg_path.open("w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
         cmd = [sys.executable, str(gen_script), "--config", str(cfg_path)]
-        # Prefer same interpreter; override with PHYS4D_PYTHON if set.
         py = os.environ.get("PHYS4D_PYTHON")
         if py:
             cmd[0] = py
         print(f"[{i + 1}/{len(grid)}] {name}")
         subprocess.run(cmd, check=True, cwd=str(REPO_ROOT))
 
-    print(f"Planned {len(planned)} scenes under {batch_root}")
-    for name, cfg_path in planned[:5]:
-        print(f"  {name} -> {cfg_path}")
-    if len(planned) > 5:
-        print(f"  ... and {len(planned) - 5} more")
+    print(f"Planned {len(grid)} scenes under {batch_root}")
     if args.dry_run:
         print("(dry-run: no simulation)")
+    else:
+        print("Next: python scripts/build_param_id_splits.py")
     return 0
 
 

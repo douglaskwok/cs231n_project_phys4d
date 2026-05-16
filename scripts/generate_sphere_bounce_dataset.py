@@ -270,22 +270,37 @@ def main() -> int:
     except ValueError:
         cfg_rel = str(cfg_path)
 
+    gravity_z = float(grav[2])
+    param_names = ["gravity_z", "restitution", "mass_kg", "drop_z_m"]
+    param_vector = [gravity_z, restitution, mass, float(p0[2])]
     metadata = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "config_path": cfg_rel,
         "experiment": cfg.get("experiment"),
         "num_frames": num_frames,
+        "num_cameras": len(cam_positions),
         "dt_s": dt,
         "sphere_body_unique_id_note": "segmentation mask values match PyBullet body unique id for the sphere",
+        "physics_params": {
+            "param_names": param_names,
+            "param_vector": param_vector,
+            "predict_v1": ["restitution", "mass_kg", "drop_z_m"],
+            "note": "v1 CNN predicts restitution, mass, drop_z; gravity is fixed in sim",
+        },
     }
     with out_meta.open("w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
+
+    physics_params_path = out_meta.parent / "physics_params.json"
+    with physics_params_path.open("w", encoding="utf-8") as f:
+        json.dump(metadata["physics_params"], f, indent=2)
 
     print(f"Wrote RGB under: {out_rgb}")
     print(f"Wrote masks under: {out_masks}")
     print(f"Wrote cameras: {out_cams}")
     print(f"Wrote poses: {out_poses}")
     print(f"Wrote metadata: {out_meta}")
+    print(f"Wrote physics params: {physics_params_path}")
     return 0
 
 

@@ -1,32 +1,23 @@
 ---
-description: Phys4D living checklist — agents must read and update project progress
+description: Phys4D M2 checklist — param ID pipeline (6 phases)
 alwaysApply: true
 ---
 
-# Phys4D project checklist (required)
+# Phys4D agent rule
 
-This repo tracks implementation against the **May 2026 reframe** (visual dynamics + temporal extrapolation). Do not guess progress from memory.
+This repo tracks the **Milestone 2 six-phase spine** (param ID from video → sim rollout → Gaussian render). Do not guess progress from memory.
 
-## At session start
+## Every session
 
-1. Read **`docs/PROJECT_CHECKLIST.md`** (sections A–H).
-2. Note which items are `[x]`, `[~]`, or `[ ]` before proposing or implementing work.
-3. Prefer tasks from **section H (Next actions)** unless the user redirects.
+1. Read and update `docs/PROJECT_CHECKLIST.md` (status `[x]` / `[~]` / `[ ]`).
+2. Match work to phases 1–6; note risks (object→Gaussian mapping, no friction in v1).
+3. Do not reintroduce the removed `visual_dynamics` extrapolation path unless the user explicitly asks.
 
-## At session end (if you changed code, ran experiments, or finished Modal jobs)
+## Primary artifacts
 
-1. **Update** `docs/PROJECT_CHECKLIST.md`: flip statuses, fill Notes, add a **Changelog** row (date + one-line summary).
-2. If you completed a next-action, check it off in section H and add any new follow-ups.
-3. Briefly tell the user which checklist IDs moved (e.g. “C4 partial → x”, “E7 still open”).
-
-## Scope reminders
-
-- **Novelty** = predict frames **60–89** from **0–59**, not only 4DGS reconstruction or camera holdout.
-- **3DGS/4DGS** = upstream git (graphdeco, fudan) via Modal; our code = data export, dynamics, eval.
-- **L_render** true PSNR is **not done** until E7 is `[x]`; proxy metrics (E6) are not sufficient for the headline claim.
-
-## Do not
-
-- Mark batch 4DGS (C4) done until Modal smoke finished and artifacts downloaded.
-- Mark cross-scene dynamics (D6) done until trained/eval’d on full batch with physics holdout.
-- Expand scope (system-ID path, physics losses) without user ask — track as `[ ]` in checklist only.
+| Phase | Path |
+|-------|------|
+| 1 | `configs/param_id_dataset.json`, `outputs/param_id_dataset/`, `dataset_manifest.json` |
+| 2–3 | `src/phys4d/param_ident/`, `scripts/train_param_predictor.py`, `outputs/param_predictor/` |
+| 4 | `warp_gaussians_to_frame.py`, Modal 4DGS, inference script (TBD) |
+| 5 | eval scripts + ablations (TBD) |

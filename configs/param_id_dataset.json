@@ -1,0 +1,21 @@
+{
+  "experiment": "param_id_sphere_bounce",
+  "description": "Cross-scene dataset for CNN physics-parameter identification (M2 deck phases 1–3).",
+  "base_config": "configs/sphere_bounce_m2.json",
+  "batch_root": "outputs/param_id_dataset",
+  "target_scenes": 150,
+  "seed": 42,
+  "sampling": {
+    "restitution": { "min": 0.3, "max": 0.95 },
+    "mass_kg": { "min": 0.1, "max": 2.0 },
+    "drop_z_m": { "min": 1.0, "max": 2.2 }
+  },
+  "split_ratios": { "train": 0.8, "val": 0.1, "test": 0.1 },
+  "naming": "scene_{index:04d}_e{restitution:.2f}_m{mass_kg:.2f}_z{drop_z_m:.2f}",
+  "notes": [
+    "v1 predicts restitution, mass_kg, drop_z_m (no friction).",
+    "Run: python scripts/generate_param_id_batch.py --dry-run",
+    "Then: python scripts/generate_param_id_batch.py --limit 5  # smoke",
+    "Splits: python scripts/build_param_id_splits.py"
+  ]
+}

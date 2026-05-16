@@ -1,6 +1,6 @@
 # Project Claim
 
-> **Updated direction (May 2026):** see [`project_direction.md`](project_direction.md) for the reframed contribution (trajectory extrapolation + learned visual dynamics). This file retains the original Milestone 2 inverse system-ID framing as background.
+> **Current direction (May 2026):** see [`project_direction.md`](project_direction.md) — CNN param ID from video → PyBullet rollout → Gaussian render. This file states the core inverse system-ID claim.
 
 ## One-Sentence Claim
 
