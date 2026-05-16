@@ -2,6 +2,8 @@
 
 **Spine of the M2 deck.** Phases 1–3 are must-haves; 4–5 are the contribution; 6 is stretch.
 
+**Full walkthrough from zero:** [`PIPELINE_FROM_SCRATCH.md`](PIPELINE_FROM_SCRATCH.md)
+
 **Last updated:** 2026-05-15
 
 ---

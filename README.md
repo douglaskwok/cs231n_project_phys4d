@@ -3,6 +3,7 @@
 **Inverse physics from multi-view video:** PyBullet data → CNN predicts physical parameters → sim rollout → warp 3D/4D Gaussians → render.
 
 **M2 checklist (deck spine):** [`docs/PROJECT_CHECKLIST.md`](docs/PROJECT_CHECKLIST.md)  
+**Pipeline from scratch:** [`docs/PIPELINE_FROM_SCRATCH.md`](docs/PIPELINE_FROM_SCRATCH.md)  
 **Direction:** [`docs/project_direction.md`](docs/project_direction.md)  
 **Original claim:** [`docs/project_claim.md`](docs/project_claim.md)
 

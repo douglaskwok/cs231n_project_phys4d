@@ -23,7 +23,25 @@ def _load_physics(scene_dir: Path) -> dict | None:
     if meta.is_file():
         with meta.open("r", encoding="utf-8") as f:
             data = json.load(f)
-        return data.get("physics_params")
+        if data.get("physics_params"):
+            return data["physics_params"]
+    cfg_path = scene_dir / "config.json"
+    if cfg_path.is_file():
+        with cfg_path.open("r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        scene = cfg["scene"]
+        sphere = next(o for o in scene["objects"] if o["name"] == "sphere")
+        grav = scene["gravity_m_s2"]
+        return {
+            "param_names": ["gravity_z", "restitution", "mass_kg", "drop_z_m"],
+            "param_vector": [
+                float(grav[2]),
+                float(scene["true_restitution"]),
+                float(sphere["mass_kg"]),
+                float(sphere["initial_position_m"][2]),
+            ],
+            "predict_v1": PREDICT_NAMES,
+        }
     return None
 
 
@@ -85,11 +103,17 @@ def main() -> int:
         default=None,
         help="Default: <batch_root>/dataset_manifest.json",
     )
+    parser.add_argument(
+        "--batch-root",
+        type=Path,
+        default=None,
+        help="Override dataset folder (e.g. outputs/sphere_bounce_batch)",
+    )
     args = parser.parse_args()
 
     with args.manifest.open("r", encoding="utf-8") as f:
         manifest = json.load(f)
-    batch_root = REPO_ROOT / manifest["batch_root"]
+    batch_root = args.batch_root or (REPO_ROOT / manifest["batch_root"])
     scenes = discover_scenes(batch_root)
     if not scenes:
         raise SystemExit(f"No scenes under {batch_root}. Run generate_param_id_batch.py first.")
