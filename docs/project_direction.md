@@ -61,14 +61,36 @@ Use **upstream git** splatting only — no fork maintenance in this repo:
 
 Our code owns: data generation, export formats, pose warp, metrics, and (new) dynamics training — not rasterizer internals.
 
+## Commands (implemented)
+
+```bash
+conda activate phys4d   # or: export PHYS4D_PYTHON=/opt/miniconda3/envs/phys4d/bin/python
+
+# 2) Cross-scene batch data
+python scripts/generate_sphere_bounce_batch.py          # 45 scenes (~30 min)
+python scripts/generate_sphere_bounce_batch.py --limit 12  # smoke
+
+# 3) 4DGS export (git fudan repo via Modal train-4d per scene)
+python scripts/export_4dgs_batch.py --symlink
+# → outputs/sphere_bounce_batch_dynerf/batch_manifest.json
+
+# 4) Learned visual dynamics
+python scripts/train_visual_dynamics.py --epochs 40
+# → outputs/visual_dynamics/visual_dynamics.pt
+
+# 5) Baselines table (temporal split, frames 60–89)
+python scripts/run_extrapolation_baselines.py
+# → outputs/extrapolation_baselines.md
+```
+
 ## Near-term milestones
 
 | Week | Deliverable |
 |------|-------------|
-| 1 | Batch dataset manifest + 10-scene smoke; temporal train/test eval script |
-| 2 | State sequences + ResNet18 feature cache per scene |
-| 3 | Dynamics head + autoregressive rollout; \(L_\text{state}\) on sim poses |
-| 4 | Gaussian warp render + \(L_\text{render}\) on held-out frames; baselines table |
+| 1 | ~~Batch manifest + baselines~~ (done on branch) |
+| 2 | Modal 4DGS on batch manifest; log PSNR per scene |
+| 3 | \(L_\text{render}\): warp Gaussians with predicted poses vs held-out RGB |
+| 4 | Ablations: physics-only vs visual-only vs combined |
 
 ## Eval splits (explicit)
 

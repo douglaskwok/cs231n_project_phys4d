@@ -10,3 +10,4 @@ numpy>=1.23
 imageio>=2.31
 plyfile>=1.0.0
 torch>=2.0
+torchvision>=0.15

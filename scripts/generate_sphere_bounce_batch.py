@@ -14,6 +14,7 @@ import argparse
 import copy
 import itertools
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -115,6 +116,10 @@ def main() -> int:
         with cfg_path.open("w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
         cmd = [sys.executable, str(gen_script), "--config", str(cfg_path)]
+        # Prefer same interpreter; override with PHYS4D_PYTHON if set.
+        py = os.environ.get("PHYS4D_PYTHON")
+        if py:
+            cmd[0] = py
         print(f"[{i + 1}/{len(grid)}] {name}")
         subprocess.run(cmd, check=True, cwd=str(REPO_ROOT))
 
