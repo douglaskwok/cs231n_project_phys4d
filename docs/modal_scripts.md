@@ -1,37 +1,41 @@
-# What runs on Modal vs locally
+# Modal vs local (project.md / visual dynamics)
 
-| Script / job | Where | Modal flag |
-|--------------|-------|------------|
-| `generate_sphere_bounce_dataset.py` | **Local CPU** (PyBullet) | — |
-| `generate_param_id_batch.py` | **Local CPU** | — |
-| `build_param_id_splits.py` | **Local** | — |
-| `export_gs_blender_scene.py` | **Local** (prep) | `--upload` |
-| `export_4dgs_dataset.py` | **Local** (prep) | `--upload-4d` |
-| `train_param_predictor.py` | **Local GPU** or Modal | `--train-param-id` |
-| `run_param_id_pipeline.py` | **Local GPU** or Modal | `--pipeline` |
-| `train` (3DGS) | Modal GPU | `--train` |
-| `train_4dgs` | Modal GPU | `--train-4d` |
-| `render_4dgs_trajectory.py` | Modal GPU | `--render-4d` |
-| `eval_4dgs_metrics.py` | Modal GPU | `--eval-4d` |
-| `warp_gaussians_to_frame.py` | Local CPU (in pipeline on Modal too) | via `--pipeline` |
-| `recover_restitution*.py` | Local | — |
-| unittests | Modal T4 | `--tests` |
+| Step | Local | Modal |
+|------|-------|-------|
+| PyBullet data | `generate_sphere_bounce_dataset.py` | — |
+| Upload batch | — | `--upload-batch` |
+| Perception cache | `extract_perception.py` | `--extract-perception` |
+| **Train dynamics** | `train_visual_dynamics.py` | **`--train-visual-dynamics`** |
+| 3DGS | `export_gs_blender_scene.py` | `--upload` + `--train` |
+| 4DGS | `export_4dgs_dataset.py` | `--upload-4d` + `--train-4d` |
+| E2E pipeline | `run_visual_dynamics_pipeline.py` | `--upload-visual-pipeline` + `--visual-pipeline` |
 
-## Phase 4 on Modal (typical)
+## Visual dynamics on Modal (recommended)
 
 ```bash
-# 1) Local data + optional local train
-python scripts/generate_sphere_bounce_dataset.py
-modal run modal_app.py --upload && modal run modal_app.py --train   # 3DGS
+# 1) Upload 45-scene batch (+ manifest) to volume
+modal run modal_app.py --upload-batch
 
-# 2) Upload scene + artifacts for pipeline
-modal run modal_app.py --upload-pipeline
+# 2) Cache perception on GPU machine (states + t=0 visual features)
+modal run modal_app.py --extract-perception
 
-# 3) Train CNN on volume (after batch dataset upload)
-modal volume put phys4d-gs-data outputs/param_id_dataset param_id_dataset
-modal run modal_app.py --train-param-id
+# 3) Train (A10G, ~hours depending on epochs in visual_dynamics.json)
+modal run modal_app.py --train-visual-dynamics
 
-# 4) E2E pipeline
-modal run modal_app.py --pipeline
-modal volume get phys4d-gs-output param_id_pipeline .
+# 4) Download checkpoint
+modal volume get phys4d-gs-output visual_dynamics . --force
+
+# 5) E2E demo scene (upload m2 + 3DGS + ckpt first)
+modal run modal_app.py --upload-visual-pipeline
+modal run modal_app.py --visual-pipeline
 ```
+
+States-only ablation on Modal:
+
+```bash
+modal run modal_app.py --train-visual-dynamics --visual-states-only
+```
+
+## Legacy param-ID (not project.md primary)
+
+`--train-param-id`, `--pipeline`, `--upload-pipeline`

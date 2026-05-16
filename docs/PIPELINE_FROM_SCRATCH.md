@@ -36,14 +36,24 @@ modal volume get phys4d-gs-output gs_sphere_bounce . --force
 
 ## 3–4. Train dynamics (Phases 3–4)
 
+**Local (MPS/CUDA):**
+
 ```bash
+python scripts/extract_perception.py
 python scripts/train_visual_dynamics.py \
   --manifest outputs/sphere_bounce_batch/dataset_manifest.json
-
-# States-only ablation baseline
-python scripts/train_visual_dynamics.py --no-visual \
-  --out-dir outputs/visual_dynamics/states_only
 ```
+
+**Modal (GPU):**
+
+```bash
+modal run modal_app.py --upload-batch
+modal run modal_app.py --extract-perception
+modal run modal_app.py --train-visual-dynamics
+modal volume get phys4d-gs-output visual_dynamics . --force
+```
+
+States-only ablation: add `--no-visual` locally or `--visual-states-only` on Modal.
 
 ## 5. Inference E2E (Phase 5)
 

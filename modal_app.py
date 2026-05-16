@@ -19,9 +19,12 @@ Modal:
   modal run modal_app.py --render-4d       # raster MP4 + PNGs (multi-cam + correct time t)
   modal run modal_app.py --render-4d-orbit # horizontal orbit MP4 (novel viewpoints)
   modal run modal_app.py --eval-4d        # PSNR/MAE vs GT (train + test splits)
-  modal run modal_app.py --train-param-id # CNN param predictor (GPU)
-  modal run modal_app.py --pipeline       # phase 4 E2E on volume data
-  modal run modal_app.py --upload-pipeline # upload scene + 3DGS for --pipeline
+  modal run modal_app.py --upload-batch          # sphere_bounce_batch -> volume
+  modal run modal_app.py --extract-perception    # cache states + t=0 visual feats on volume
+  modal run modal_app.py --train-visual-dynamics # project.md dynamics (GPU)
+  modal run modal_app.py --upload-visual-pipeline
+  modal run modal_app.py --visual-pipeline       # rollout + warp E2E
+  modal run modal_app.py --train-param-id        # legacy param-ID CNN
 """
 
 from __future__ import annotations
@@ -166,6 +169,7 @@ def run_phys_tests() -> str:
             "unittest",
             "tests/test_restitution_recovery.py",
             "tests/test_param_ident_shapes.py",
+            "tests/test_visual_dynamics.py",
             "-v",
         ],
         check=True,
@@ -630,6 +634,144 @@ def train_param_predictor_remote(
     image=_ml_image,
     gpu="T4",
     volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 3,
+)
+def extract_perception_remote(
+    batch_rel: str = "sphere_bounce_batch",
+    config_name: str = "visual_dynamics.json",
+    limit: int = 0,
+) -> str:
+    """Phase 2 on Modal: states.npy + visual_feat_t0.npy per scene under /data/<batch>."""
+    batch_root = Path("/data") / batch_rel
+    if not batch_root.is_dir():
+        raise FileNotFoundError(
+            f"No batch at {batch_root}. Run: modal run modal_app.py --upload-batch"
+        )
+    cfg = Path("/repo_configs") / config_name
+    env = {**os.environ, "PYTHONPATH": "/repo/src"}
+    cmd = [
+        sys.executable,
+        "/repo/scripts/extract_perception.py",
+        "--config",
+        str(cfg),
+        "--batch-root",
+        str(batch_root),
+    ]
+    if limit > 0:
+        cmd += ["--limit", str(limit)]
+    subprocess.run(cmd, check=True, env=env)
+    output_volume.commit()
+    return f"perception caches written under /data/{batch_rel}/*/perception/"
+
+
+@app.function(
+    image=_ml_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 8,
+)
+def train_visual_dynamics_remote(
+    manifest_rel: str = "sphere_bounce_batch/dataset_manifest.json",
+    config_name: str = "visual_dynamics.json",
+    no_visual: bool = False,
+) -> str:
+    """Train visually conditioned dynamics (project.md) on /data batch scenes."""
+    manifest = Path("/data") / manifest_rel
+    if not manifest.is_file():
+        raise FileNotFoundError(
+            f"No manifest at {manifest}. Upload batch: modal run modal_app.py --upload-batch"
+        )
+    cfg_path = Path("/repo_configs") / config_name
+    out_dir = Path("/outputs/visual_dynamics")
+    if no_visual:
+        out_dir = Path("/outputs/visual_dynamics/states_only")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "PYTHONPATH": "/repo/src"}
+    cmd = [
+        sys.executable,
+        "/repo/scripts/train_visual_dynamics.py",
+        "--config",
+        str(cfg_path),
+        "--manifest",
+        str(manifest),
+        "--data-root",
+        "/data",
+        "--out-dir",
+        str(out_dir),
+        "--device",
+        "cuda",
+    ]
+    if no_visual:
+        cmd.append("--no-visual")
+    subprocess.run(cmd, check=True, env=env)
+    output_volume.commit()
+    ckpt = "visual_dynamics_states_only.pt" if no_visual else "visual_dynamics.pt"
+    return f"visual dynamics -> phys4d-gs-output:{out_dir} ({ckpt})"
+
+
+@app.function(
+    image=_ml_image,
+    gpu="T4",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60,
+)
+def run_visual_dynamics_pipeline_remote(
+    scene_rel: str = "scene",
+    config_name: str = "visual_dynamics.json",
+    checkpoint_name: str = "visual_dynamics.pt",
+    ply_rel: str = "gs_sphere_bounce/point_cloud/iteration_7000/point_cloud.ply",
+    gs_cameras_rel: str = "gs_sphere_bounce/cameras.json",
+    out_rel: str = "visual_dynamics_pipeline",
+) -> str:
+    """Phase 5: perception + rollout + warp (project.md)."""
+    scene_dir = Path("/data") / scene_rel
+    if not (scene_dir / "rgb").is_dir():
+        raise FileNotFoundError(
+            f"No scene at {scene_dir}. Run: modal run modal_app.py --upload-visual-pipeline"
+        )
+    ckpt = Path("/outputs/visual_dynamics") / checkpoint_name
+    if not ckpt.is_file():
+        ckpt = Path("/outputs/visual_dynamics/states_only") / checkpoint_name
+    if not ckpt.is_file():
+        raise FileNotFoundError(
+            f"No checkpoint {checkpoint_name}. Run: modal run modal_app.py --train-visual-dynamics"
+        )
+    ply = Path("/outputs") / ply_rel
+    if not ply.is_file():
+        raise FileNotFoundError(f"No PLY at {ply}. Run --upload && --train (3DGS) first.")
+    gs_cams = Path("/outputs") / gs_cameras_rel
+    cfg = Path("/repo_configs") / config_name
+    out_dir = Path("/outputs") / out_rel
+    env = {**os.environ, "PYTHONPATH": "/repo/src"}
+    cmd = [
+        sys.executable,
+        "/repo/scripts/run_visual_dynamics_pipeline.py",
+        "--config",
+        str(cfg),
+        "--scene-dir",
+        str(scene_dir),
+        "--checkpoint",
+        str(ckpt),
+        "--ply",
+        str(ply),
+        "--out-dir",
+        str(out_dir),
+        "--device",
+        "cuda",
+    ]
+    if gs_cams.is_file():
+        cmd += ["--gs-cameras", str(gs_cams)]
+    subprocess.run(cmd, check=True, env=env)
+    output_volume.commit()
+    report = out_dir / "pipeline_report.json"
+    text = report.read_text(encoding="utf-8") if report.is_file() else "(no report)"
+    return f"visual pipeline -> phys4d-gs-output:{out_dir}\n{text}"
+
+
+@app.function(
+    image=_ml_image,
+    gpu="T4",
+    volumes={"/data": data_volume, "/outputs": output_volume},
     timeout=60 * 60,
 )
 def run_param_id_pipeline_remote(
@@ -700,6 +842,14 @@ def main(
     render_4d: bool = False,
     render_4d_orbit: bool = False,
     eval_4d: bool = False,
+    upload_batch: bool = False,
+    extract_perception: bool = False,
+    train_visual_dynamics: bool = False,
+    visual_states_only: bool = False,
+    upload_visual_pipeline: bool = False,
+    visual_pipeline: bool = False,
+    batch_rel: str = "sphere_bounce_batch",
+    vd_manifest: str = "sphere_bounce_batch/dataset_manifest.json",
     train_param_id: bool = False,
     pipeline: bool = False,
     upload_pipeline: bool = False,
@@ -707,6 +857,7 @@ def main(
     param_id_epochs: int = 50,
     pipeline_scene_rel: str = "scene",
     pipeline_out_rel: str = "param_id_pipeline",
+    perception_limit: int = 0,
     render_4d_checkpoint: str | None = None,
     render_fps: float = 60.0,
     render_dry_run_max: int = 0,
@@ -826,6 +977,93 @@ def main(
         )
         print(
             "Full JSON: modal volume get phys4d-gs-output 4dgs_eval/metrics_4dgs.json . --force"
+        )
+        return
+    if upload_batch:
+        batch_src = REPO_ROOT / "outputs" / batch_rel
+        if not batch_src.is_dir():
+            raise FileNotFoundError(
+                f"Missing {batch_src}. Generate data locally first."
+            )
+        subprocess.run(
+            ["modal", "volume", "rm", "phys4d-gs-data", batch_rel, "-r"],
+            check=False,
+        )
+        subprocess.run(
+            ["modal", "volume", "put", "phys4d-gs-data", str(batch_src), batch_rel],
+            check=True,
+        )
+        manifest = batch_src / "dataset_manifest.json"
+        if manifest.is_file():
+            subprocess.run(
+                [
+                    "modal",
+                    "volume",
+                    "put",
+                    "phys4d-gs-data",
+                    str(manifest),
+                    f"{batch_rel}/dataset_manifest.json",
+                ],
+                check=True,
+            )
+        print(f"Uploaded {batch_src} -> phys4d-gs-data:/{batch_rel}")
+        return
+    if extract_perception:
+        print(
+            extract_perception_remote.remote(
+                batch_rel=batch_rel,
+                limit=perception_limit,
+            )
+        )
+        return
+    if train_visual_dynamics:
+        print(
+            train_visual_dynamics_remote.remote(
+                manifest_rel=vd_manifest,
+                no_visual=visual_states_only,
+            )
+        )
+        print(
+            "Download: modal volume get phys4d-gs-output visual_dynamics . --force"
+        )
+        return
+    if upload_visual_pipeline:
+        scene_src = REPO_ROOT / "outputs" / "sphere_bounce_m2"
+        if not (scene_src / "rgb").is_dir():
+            raise FileNotFoundError(f"Missing {scene_src}")
+        subprocess.run(
+            ["modal", "volume", "rm", "phys4d-gs-data", "scene", "-r"],
+            check=False,
+        )
+        subprocess.run(
+            ["modal", "volume", "put", "phys4d-gs-data", str(scene_src), "scene"],
+            check=True,
+        )
+        ckpt = REPO_ROOT / "outputs" / "visual_dynamics" / "visual_dynamics.pt"
+        if ckpt.is_file():
+            subprocess.run(
+                [
+                    "modal",
+                    "volume",
+                    "put",
+                    "phys4d-gs-output",
+                    str(ckpt),
+                    "visual_dynamics/visual_dynamics.pt",
+                ],
+                check=True,
+            )
+        gs_local = REPO_ROOT / "gs_sphere_bounce"
+        if (gs_local / "point_cloud").is_dir():
+            subprocess.run(
+                ["modal", "volume", "put", "phys4d-gs-output", str(gs_local), "gs_sphere_bounce"],
+                check=True,
+            )
+        print("Uploaded scene + optional visual_dynamics ckpt + gs_sphere_bounce")
+        return
+    if visual_pipeline:
+        print(run_visual_dynamics_pipeline_remote.remote(scene_rel=pipeline_scene_rel))
+        print(
+            f"Download: modal volume get phys4d-gs-output visual_dynamics_pipeline . --force"
         )
         return
     if upload_pipeline:

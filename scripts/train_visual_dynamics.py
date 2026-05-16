@@ -71,6 +71,12 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=REPO_ROOT / "configs/visual_dynamics.json")
     parser.add_argument("--batch-root", type=Path, default=None)
     parser.add_argument("--manifest", type=Path, default=None)
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=REPO_ROOT / "outputs",
+        help="Parent of batch_root/ (use /data on Modal)",
+    )
     parser.add_argument("--out-dir", type=Path, default=REPO_ROOT / "outputs/visual_dynamics")
     parser.add_argument("--no-visual", action="store_true", help="States-only ablation baseline")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -82,8 +88,9 @@ def main() -> int:
     tr = cfg["training"]
     batch_root = args.batch_root or (REPO_ROOT / cfg["data"]["batch_root"])
 
+    data_root = args.data_root.resolve()
     if args.manifest and args.manifest.is_file():
-        splits = load_manifest_splits(args.manifest, REPO_ROOT / "outputs")
+        splits = load_manifest_splits(args.manifest, data_root)
         train_scenes = splits["train"]
         val_scenes = splits.get("val", splits.get("test", []))
     else:
