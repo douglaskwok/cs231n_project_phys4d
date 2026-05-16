@@ -120,6 +120,91 @@ def filter_sphere_gaussians_by_masks(
     return GaussianCloud(vertices=cloud.vertices[keep].copy())
 
 
+def mask_centroid_world(
+    masks_root: Path,
+    frame: int,
+    *,
+    gs_cameras: list[dict],
+    gs_cam_indices: list[int] | None = None,
+) -> np.ndarray | None:
+    """Mean 3D position of high-opacity Gaussians projecting into masks (approx. sphere center)."""
+
+    from .camera_project import _read_mask, gs_camera_matrices
+
+    indices = gs_cam_indices or list(range(min(len(gs_cameras), 6)))
+    points_3d: list[np.ndarray] = []
+    for ci in indices:
+        cam_name = f"cam{ci:02d}"
+        mask_path = masks_root / cam_name / f"frame{frame:05d}.png"
+        if not mask_path.is_file():
+            continue
+        mask = _read_mask(mask_path) > 127
+        if not mask.any():
+            continue
+        ys, xs = np.where(mask)
+        u = float(np.mean(xs))
+        v = float(np.mean(ys))
+        gs_cam = gs_cameras[ci]
+        r_w2c, t_w2c, intr = gs_camera_matrices(gs_cam)
+        fx, fy = intr.fx, intr.fy
+        w, h = intr.width, intr.height
+        x_cam = (u - w * 0.5) / fx
+        y_cam = (h - v - h * 0.5) / fy
+        z_cam = 2.0
+        p_cam = np.array([x_cam * z_cam, y_cam * z_cam, z_cam], dtype=np.float64)
+        p_world = r_w2c.T @ (p_cam - t_w2c)
+        points_3d.append(p_world)
+    if not points_3d:
+        return None
+    return np.mean(np.stack(points_3d, axis=0), axis=0)
+
+
+def filter_sphere_gaussians_near_centroid(
+    cloud: GaussianCloud,
+    center: np.ndarray,
+    radius_m: float,
+    margin: float = 1.5,
+) -> GaussianCloud:
+    center = np.asarray(center, dtype=np.float64).reshape(3)
+    dist = np.linalg.norm(cloud.xyz - center, axis=1)
+    keep = dist <= float(radius_m) * float(margin)
+    return GaussianCloud(vertices=cloud.vertices[keep].copy())
+
+
+def select_sphere_gaussians(
+    cloud: GaussianCloud,
+    *,
+    masks_root: Path | None,
+    ref_frame: int,
+    gs_cameras: list[dict] | None,
+    sphere_radius_m: float = 0.1,
+    gs_cam_indices: list[int] | None = None,
+) -> GaussianCloud:
+    """Object→Gaussian mapping: mask hits ∩ opacity ∩ centroid ball."""
+
+    selected = filter_sphere_gaussians_by_opacity(cloud)
+    if masks_root is not None and masks_root.is_dir() and gs_cameras:
+        selected = filter_sphere_gaussians_by_masks(
+            selected,
+            masks_root,
+            ref_frame,
+            min_camera_hits=1,
+            gs_cameras=gs_cameras,
+            gs_cam_indices=gs_cam_indices,
+        )
+        center = mask_centroid_world(
+            masks_root,
+            ref_frame,
+            gs_cameras=gs_cameras,
+            gs_cam_indices=gs_cam_indices,
+        )
+        if center is not None:
+            selected = filter_sphere_gaussians_near_centroid(
+                selected, center, sphere_radius_m, margin=1.6
+            )
+    return selected
+
+
 def estimate_pb_to_gs_z_scale(
     trajectory: ObjectPoseTrajectory,
     gs_sphere_z: float,

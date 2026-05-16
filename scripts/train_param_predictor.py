@@ -16,7 +16,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from phys4d.param_ident.dataset import ParamIdDataset, load_manifest  # noqa: E402
+from phys4d.param_ident.mlp_baseline import PoseHistoryMLP  # noqa: E402
 from phys4d.param_ident.model import MultiViewParamPredictor  # noqa: E402
+from phys4d.param_ident.pose_dataset import PoseHistoryDataset  # noqa: E402
 
 PREDICT_NAMES = ["restitution", "mass_kg", "drop_z_m"]
 
@@ -66,6 +68,8 @@ def main() -> int:
         default=REPO_ROOT / "outputs/param_predictor",
     )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--model", choices=("cnn", "mlp"), default="cnn")
+    parser.add_argument("--max-views", type=int, default=10)
     args = parser.parse_args()
 
     if not args.manifest.is_file():
@@ -77,8 +81,12 @@ def main() -> int:
 
     train_scenes = load_manifest(args.manifest, "train", data_root=args.data_root)
     val_scenes = load_manifest(args.manifest, "val", data_root=args.data_root)
-    train_ds = ParamIdDataset(train_scenes, augment=True)
-    val_ds = ParamIdDataset(val_scenes, augment=False)
+    if args.model == "cnn":
+        train_ds = ParamIdDataset(train_scenes, augment=True, max_views=args.max_views)
+        val_ds = ParamIdDataset(val_scenes, augment=False, max_views=args.max_views)
+    else:
+        train_ds = PoseHistoryDataset(train_scenes)
+        val_ds = PoseHistoryDataset(val_scenes)
     train_loader = DataLoader(
         train_ds,
         batch_size=args.batch_size,
@@ -94,7 +102,10 @@ def main() -> int:
     )
 
     device = torch.device(args.device)
-    model = MultiViewParamPredictor(num_params=len(PREDICT_NAMES)).to(device)
+    if args.model == "cnn":
+        model = MultiViewParamPredictor(num_params=len(PREDICT_NAMES)).to(device)
+    else:
+        model = PoseHistoryMLP(num_params=len(PREDICT_NAMES)).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_fn = nn.MSELoss()
 
@@ -130,21 +141,24 @@ def main() -> int:
             f"val_mse={val_mse:.5f} {val_metrics}"
         )
 
+        prefix = "param_predictor" if args.model == "cnn" else "pose_mlp"
         ckpt = {
             "model_state": model.state_dict(),
+            "model_type": args.model,
             "predict_names": PREDICT_NAMES,
             "epoch": epoch,
             "val_mean_mse": val_mse,
         }
-        torch.save(ckpt, args.out_dir / "param_predictor_last.pt")
+        torch.save(ckpt, args.out_dir / f"{prefix}_last.pt")
         if val_mse < best_val:
             best_val = val_mse
-            torch.save(ckpt, args.out_dir / "param_predictor_best.pt")
+            torch.save(ckpt, args.out_dir / f"{prefix}_best.pt")
 
     with (args.out_dir / "train_history.json").open("w", encoding="utf-8") as f:
         json.dump(history, f, indent=2)
     print(f"Best val mean MSE: {best_val:.5f}")
-    print(f"Checkpoint: {args.out_dir / 'param_predictor_best.pt'}")
+    prefix = "param_predictor" if args.model == "cnn" else "pose_mlp"
+    print(f"Checkpoint: {args.out_dir / f'{prefix}_best.pt'}")
     return 0
 
 

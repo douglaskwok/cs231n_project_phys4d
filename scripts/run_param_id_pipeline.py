@@ -18,10 +18,10 @@ if str(SRC) not in sys.path:
 from phys4d.camera_project import load_gs_cameras, mask_coverage_fraction  # noqa: E402
 from phys4d.gaussian_ply import (  # noqa: E402
     estimate_pb_to_gs_z_scale,
-    filter_sphere_gaussians_by_masks,
     filter_sphere_gaussians_by_opacity,
     load_gaussian_ply,
     save_gaussian_ply,
+    select_sphere_gaussians,
     warp_gaussians_to_frame,
 )
 from phys4d.param_ident.dataset import PREDICT_NAMES  # noqa: E402
@@ -129,16 +129,17 @@ def main() -> int:
     cloud = load_gaussian_ply(args.ply)
     masks_root = scene_dir / "masks"
     gs_cams = load_gs_cameras(args.gs_cameras) if args.gs_cameras.is_file() else []
-    if masks_root.is_dir() and gs_cams:
-        sphere_cloud = filter_sphere_gaussians_by_masks(
-            cloud,
-            masks_root,
-            args.ref_frame,
-            min_camera_hits=1,
-            gs_cameras=gs_cams[: min(6, len(gs_cams))],
-        )
-    else:
-        sphere_cloud = filter_sphere_gaussians_by_opacity(cloud)
+    gs_indices = list(range(min(6, len(gs_cams)))) if gs_cams else None
+    sphere_radius = float(cfg["scene"]["objects"][0].get("radius_m", 0.1))
+    sphere_cloud = select_sphere_gaussians(
+        cloud,
+        masks_root=masks_root if masks_root.is_dir() else None,
+        ref_frame=args.ref_frame,
+        gs_cameras=gs_cams if gs_cams else None,
+        sphere_radius_m=sphere_radius,
+        gs_cam_indices=gs_indices,
+    )
+    print(f"Sphere Gaussians selected: {sphere_cloud.xyz.shape[0]}")
 
     gt_traj = load_object_poses_csv(gt_poses) if gt_poses.is_file() else None
     pred_traj = load_object_poses_csv(pred_poses)
@@ -214,6 +215,26 @@ def main() -> int:
     report_path = out_dir / "pipeline_report.json"
     with report_path.open("w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
+
+    # 2D projection proxy on test frames
+    try:
+        import subprocess
+
+        subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "scripts/eval_warped_crop_mae.py"),
+                "--scene-dir",
+                str(scene_dir),
+                "--pred-poses",
+                str(pred_poses),
+                "--out-json",
+                str(out_dir / "projection_error.json"),
+            ],
+            check=False,
+        )
+    except Exception:
+        pass
 
     print(json.dumps(report, indent=2))
     print(f"Wrote {report_path}")
