@@ -55,6 +55,15 @@ def trajectory_metrics(
     }
 
 
+def metrics_from_states(
+    pred: ObjectPoseTrajectory,
+    gt: ObjectPoseTrajectory,
+    frame_start: int,
+    frame_end: int,
+) -> dict[str, float]:
+    return trajectory_metrics(pred, gt, frame_start, frame_end)
+
+
 def metrics_from_csv(
     pred_csv: Path,
     gt_csv: Path,

@@ -1,23 +1,23 @@
 ---
-description: Phys4D M2 checklist — param ID pipeline (6 phases)
+description: Phys4D — follow project.md (visual dynamics)
 alwaysApply: true
 ---
 
-# Phys4D agent rule
+# Phys4d agent rule
 
-This repo tracks the **Milestone 2 six-phase spine** (param ID from video → sim rollout → Gaussian render). Do not guess progress from memory.
+Follow [`project.md`](../project.md) as the authoritative spec.
 
 ## Every session
 
-1. Read and update `docs/PROJECT_CHECKLIST.md` (status `[x]` / `[~]` / `[ ]`).
-2. Match work to phases 1–6; note risks (object→Gaussian mapping, no friction in v1).
-3. Do not reintroduce the removed `visual_dynamics` extrapolation path unless the user explicitly asks.
+1. Update [`docs/PROJECT_CHECKLIST.md`](../docs/PROJECT_CHECKLIST.md).
+2. Primary path: **4DGS perception → states + t=0 visual features → ObjectTokenDynamics rollout → Gaussian warp/render**.
+3. CV claim requires **visual conditioning**; use `--no-visual` only for ablations.
 
-## Primary artifacts
+## Key paths
 
-| Phase | Path |
-|-------|------|
-| 1 | `configs/param_id_dataset.json`, `outputs/param_id_dataset/`, `dataset_manifest.json` |
-| 2–3 | `src/phys4d/param_ident/`, `scripts/train_param_predictor.py`, `outputs/param_predictor/` |
-| 4 | `warp_gaussians_to_frame.py`, Modal 4DGS, inference script (TBD) |
-| 5 | eval scripts + ablations (TBD) |
+| Phase | Script |
+|-------|--------|
+| 2 | `scripts/extract_perception.py` |
+| 4 | `scripts/train_visual_dynamics.py` |
+| 5 | `scripts/run_visual_dynamics_pipeline.py` |
+| 6 | `scripts/eval_visual_dynamics.py`, `run_visual_dynamics_ablations.py` |
