@@ -263,7 +263,10 @@ def main() -> int:
 
     scenes: list[SceneRecord] = []
     if args.batch_root:
-        scenes = discover_batch_scenes(args.batch_root)[: args.max_scenes]
+        batch_root = args.batch_root
+        if not batch_root.is_absolute():
+            batch_root = REPO_ROOT / batch_root
+        scenes = discover_batch_scenes(batch_root.resolve())[: args.max_scenes]
     else:
         cfg_path = args.scene_config.resolve()
         if not cfg_path.is_file():
