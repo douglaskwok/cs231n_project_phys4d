@@ -1,5 +1,7 @@
 # Project Claim
 
+> **Updated direction (May 2026):** see [`project_direction.md`](project_direction.md) for the reframed contribution (trajectory extrapolation + learned visual dynamics). This file retains the original Milestone 2 inverse system-ID framing as background.
+
 ## One-Sentence Claim
 
 We model dynamic object-centric Gaussian scenes as an inverse system identification problem: from observed multi-view video, recover appearance, pose trajectories, and physical parameters that support extrapolation and counterfactual editing.
