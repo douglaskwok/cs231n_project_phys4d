@@ -236,6 +236,7 @@ orbit_latest/
 
 # Teammate ping-pong exports (12-view set is tracked; ignore regenerated 10-view)
 pybullet_outputs/ping_pong_bounce_10view_*
+pybullet_tabletop_10view.ipynb
 
 # macOS
 .DS_Store
