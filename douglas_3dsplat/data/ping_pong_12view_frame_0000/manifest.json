@@ -1,0 +1,261 @@
+{
+  "name": "ping_pong_12view_frame_0000",
+  "source": "pybullet_outputs/ping_pong_bounce_12view_*.mp4",
+  "frame_index": 0,
+  "images_dir": "images",
+  "cameras_csv": "cameras.csv",
+  "views": [
+    {
+      "index": 0,
+      "name": "front",
+      "image": "images/00_front.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_front.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "front",
+        "eye_x": "0.0",
+        "eye_y": "-1.75",
+        "eye_z": "1.15",
+        "up_x": "0",
+        "up_y": "0",
+        "up_z": "1",
+        "fov_deg": "48"
+      }
+    },
+    {
+      "index": 1,
+      "name": "front_right",
+      "image": "images/01_front_right.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_front_right.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "front_right",
+        "eye_x": "1.237436867076458",
+        "eye_y": "-1.2374368670764582",
+        "eye_z": "1.15",
+        "up_x": "0",
+        "up_y": "0",
+        "up_z": "1",
+        "fov_deg": "48"
+      }
+    },
+    {
+      "index": 2,
+      "name": "right",
+      "image": "images/02_right.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_right.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "right",
+        "eye_x": "1.75",
+        "eye_y": "-1.071565949253934e-16",
+        "eye_z": "1.15",
+        "up_x": "0",
+        "up_y": "0",
+        "up_z": "1",
+        "fov_deg": "48"
+      }
+    },
+    {
+      "index": 3,
+      "name": "back_right",
+      "image": "images/03_back_right.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_back_right.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "back_right",
+        "eye_x": "1.2374368670764582",
+        "eye_y": "1.237436867076458",
+        "eye_z": "1.15",
+        "up_x": "0",
+        "up_y": "0",
+        "up_z": "1",
+        "fov_deg": "48"
+      }
+    },
+    {
+      "index": 4,
+      "name": "back",
+      "image": "images/04_back.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_back.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "back",
+        "eye_x": "2.143131898507868e-16",
+        "eye_y": "1.75",
+        "eye_z": "1.15",
+        "up_x": "0",
+        "up_y": "0",
+        "up_z": "1",
+        "fov_deg": "48"
+      }
+    },
+    {
+      "index": 5,
+      "name": "back_left",
+      "image": "images/05_back_left.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_back_left.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "back_left",
+        "eye_x": "-1.237436867076458",
+        "eye_y": "1.2374368670764584",
+        "eye_z": "1.15",
+        "up_x": "0",
+        "up_y": "0",
+        "up_z": "1",
+        "fov_deg": "48"
+      }
+    },
+    {
+      "index": 6,
+      "name": "left",
+      "image": "images/06_left.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_left.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "left",
+        "eye_x": "-1.75",
+        "eye_y": "3.214697847761802e-16",
+        "eye_z": "1.15",
+        "up_x": "0",
+        "up_y": "0",
+        "up_z": "1",
+        "fov_deg": "48"
+      }
+    },
+    {
+      "index": 7,
+      "name": "front_left",
+      "image": "images/07_front_left.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_front_left.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "front_left",
+        "eye_x": "-1.2374368670764584",
+        "eye_y": "-1.237436867076458",
+        "eye_z": "1.15",
+        "up_x": "0",
+        "up_y": "0",
+        "up_z": "1",
+        "fov_deg": "48"
+      }
+    },
+    {
+      "index": 8,
+      "name": "top",
+      "image": "images/08_top.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_top.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "top",
+        "eye_x": "0.0",
+        "eye_y": "0.0",
+        "eye_z": "2.65",
+        "up_x": "0",
+        "up_y": "1",
+        "up_z": "0",
+        "fov_deg": "42"
+      }
+    },
+    {
+      "index": 9,
+      "name": "top_oblique",
+      "image": "images/09_top_oblique.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_top_oblique.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "top_oblique",
+        "eye_x": "0.75",
+        "eye_y": "-0.75",
+        "eye_z": "2.35",
+        "up_x": "0",
+        "up_y": "0",
+        "up_z": "1",
+        "fov_deg": "46"
+      }
+    },
+    {
+      "index": 10,
+      "name": "low_front_left",
+      "image": "images/10_low_front_left.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_low_front_left.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "low_front_left",
+        "eye_x": "-0.9",
+        "eye_y": "-1.35",
+        "eye_z": "0.87",
+        "up_x": "0",
+        "up_y": "0",
+        "up_z": "1",
+        "fov_deg": "40"
+      }
+    },
+    {
+      "index": 11,
+      "name": "low_back_right",
+      "image": "images/11_low_back_right.png",
+      "source_video": "pybullet_outputs/ping_pong_bounce_12view_low_back_right.mp4",
+      "frame_shape_hwc": [
+        544,
+        960,
+        3
+      ],
+      "camera": {
+        "name": "low_back_right",
+        "eye_x": "0.9",
+        "eye_y": "1.35",
+        "eye_z": "0.87",
+        "up_x": "0",
+        "up_y": "0",
+        "up_z": "1",
+        "fov_deg": "40"
+      }
+    }
+  ]
+}
