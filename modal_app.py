@@ -741,8 +741,10 @@ def main(
     pipeline_out_rel: str = "visual_dynamics_pipeline",
     perception_limit: int = 0,
     render_4d_checkpoint: str | None = None,
+    train_4d_config: str = "sphere_bounce_4dgs.yaml",
     render_fps: float = 60.0,
     render_dry_run_max: int = 0,
+    upload_4d_path: str = "outputs/sphere_bounce_m2/dynerf_sphere_bounce",
     orbit_frames: int = 180,
     orbit_time_start: float | None = None,
     orbit_time_end: float | None = None,
@@ -787,13 +789,19 @@ def main(
         )
         return
     if upload_4d:
-        export_script = REPO_ROOT / "scripts" / "export_4dgs_dataset.py"
-        out_scene = REPO_ROOT / "outputs" / "sphere_bounce_m2" / "dynerf_sphere_bounce"
-        subprocess.run(
-            [sys.executable, str(export_script), "--output", str(out_scene)],
-            check=True,
-            cwd=str(REPO_ROOT),
-        )
+        out_scene = (REPO_ROOT / upload_4d_path).resolve()
+        default_scene = (REPO_ROOT / "outputs" / "sphere_bounce_m2" / "dynerf_sphere_bounce").resolve()
+        if out_scene == default_scene:
+            export_script = REPO_ROOT / "scripts" / "export_4dgs_dataset.py"
+            subprocess.run(
+                [sys.executable, str(export_script), "--output", str(out_scene)],
+                check=True,
+                cwd=str(REPO_ROOT),
+            )
+        elif not (out_scene / "transforms_train.json").is_file():
+            raise FileNotFoundError(
+                f"Custom 4D scene is missing transforms_train.json: {out_scene}"
+            )
         subprocess.run(
             ["modal", "volume", "rm", "phys4d-gs-data", "4d_scene", "-r"],
             check=False,
@@ -805,7 +813,7 @@ def main(
         print(f"Uploaded {out_scene} -> volume phys4d-gs-data:/4d_scene")
         return
     if train_4d:
-        print(train_4dgs.remote())
+        print(train_4dgs.remote(config_name=train_4d_config))
         print(
             "Raster (calibrated): modal run modal_app.py --render-4d\n"
             "Raster (orbit):      modal run modal_app.py --render-4d-orbit\n"

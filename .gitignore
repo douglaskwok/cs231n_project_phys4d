@@ -238,5 +238,36 @@ orbit_latest/
 pybullet_outputs/ping_pong_bounce_10view_*
 pybullet_tabletop_10view.ipynb
 
+# macOS local files
+.DS_Store
+
+# Generated simulation/dataset exports and Modal downloads
+/dataset/outputs/
+/pybullet_outputs/
+/frames/
+/exported/
+/latest/
+/latest_*
+/*_frames/
+/*_model/
+
+# Generated segmentation and 4DGS run outputs
+/segmentation/**/runs/
+
+# Large generated artifacts
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.ply
+*.splat
+*.pth
+*.pt
+*.ckpt
+*.npy
+*.npz
+*.h5
+*.hdf5
+
 # macOS
 .DS_Store
