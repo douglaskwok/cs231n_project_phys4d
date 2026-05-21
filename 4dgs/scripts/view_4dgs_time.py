@@ -24,7 +24,6 @@ import os
 import shutil
 import sys
 import webbrowser
-from functools import partial
 from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -105,12 +104,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print(f"Missing {root / 'index.html'} — run build first.", file=sys.stderr)
         return 1
 
-    handler = partial(
-        http.server.SimpleHTTPRequestHandler,
-        directory=str(root),
-    )
+    root_str = str(root)
 
-    class QuietHandler(handler):
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, request, client_address, server):
+            super().__init__(request, client_address, server, directory=root_str)
+
         def log_message(self, fmt, *fargs):  # noqa: D102
             if args.verbose:
                 super().log_message(fmt, *fargs)
