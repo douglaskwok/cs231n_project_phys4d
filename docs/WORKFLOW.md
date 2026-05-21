@@ -34,7 +34,7 @@ This is **static** 3DGS (one timestep), not the full 90-frame bounce video.
 Uses [fudan-zvg/4d-gaussian-splatting](https://github.com/fudan-zvg/4d-gaussian-splatting) (DyNeRF-style layout):
 
 ```bash
-python scripts/export_4dgs_dataset.py
+python 4dgs/scripts/export_4dgs_dataset.py
 ```
 
 Writes `outputs/sphere_bounce_m2/dynerf_sphere_bounce/`:
@@ -44,7 +44,7 @@ Writes `outputs/sphere_bounce_m2/dynerf_sphere_bounce/`:
 | train | 0–3 | 0–59 | 240 |
 | test | 4–5 | 60–89 | 60 |
 
-Each frame has a `time` field (seconds at 60 fps). Config: `configs/sphere_bounce_4dgs.yaml`.
+Each frame has a `time` field (seconds at 60 fps). Config: `4dgs/configs/sphere_bounce_4dgs.yaml`.
 
 ## 4. Train on Modal (GPU)
 
@@ -136,7 +136,7 @@ Open warped PLY in SuperSplat and compare to `rgb/cam00/frame00030.png`.
 ## 9. 4DGS train + download
 
 ```bash
-python scripts/export_4dgs_dataset.py
+python 4dgs/scripts/export_4dgs_dataset.py
 modal run modal_app.py --upload-4d
 modal run modal_app.py --train-4d
 modal volume get phys4d-gs-output 4dgs_sphere_bounce . --force
@@ -155,8 +155,8 @@ modal volume get phys4d-gs-output 4dgs_eval/metrics_4dgs.json . --force
 
 # Local (after downloading checkpoint + same dynerf folder layout)
 export FOURDGS_ROOT=/path/to/4d-gaussian-splatting
-python scripts/eval_4dgs_metrics.py \
-  --config configs/sphere_bounce_4dgs.yaml \
+python 4dgs/scripts/eval_4dgs_metrics.py \
+  --config 4dgs/configs/sphere_bounce_4dgs.yaml \
   --dataset outputs/sphere_bounce_m2/dynerf_sphere_bounce \
   --checkpoint 4dgs_sphere_bounce/chkpnt15000.pth \
   --out-json metrics_4dgs.json

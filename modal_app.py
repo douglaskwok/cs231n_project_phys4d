@@ -7,7 +7,7 @@ Prerequisites:
 Local prep (uses **your** PyBullet RGB under outputs/sphere_bounce_m2/rgb/):
   python scripts/generate_sphere_bounce_dataset.py
   python scripts/export_gs_blender_scene.py          # static 3DGS (one frame)
-  python scripts/export_4dgs_dataset.py            # full video for 4DGS
+  python 4dgs/scripts/export_4dgs_dataset.py      # full video for 4DGS
 
 Modal:
   modal run modal_app.py                    # GPU smoke
@@ -83,16 +83,14 @@ _4dgs_image = (
         "pip install /opt/4dgs/simple-knn /opt/4dgs/pointops2",
     )
     .add_local_dir(
-        str(REPO_ROOT / "configs"),
-        remote_path="/repo_configs",
-        ignore=["__pycache__", ".DS_Store"],
-    )
-    .add_local_dir(
-        str(REPO_ROOT / "scripts"),
-        remote_path="/repo/scripts",
-        ignore=["__pycache__", ".DS_Store"],
+        str(REPO_ROOT / "4dgs"),
+        remote_path="/repo/4dgs",
+        ignore=["__pycache__", ".DS_Store", "**/runs/**"],
     )
 )
+
+FOURDGS_CONFIGS = "/repo/4dgs/configs"
+FOURDGS_SCRIPTS = "/repo/4dgs/scripts"
 
 _repo_ignore = [
     ".git",
@@ -238,7 +236,7 @@ def _train_4dgs_on_paths(
     if not (scene / "transforms_train.json").is_file():
         raise FileNotFoundError(f"No DyNeRF scene at {scene}")
 
-    cfg_src = Path("/repo_configs") / config_name
+    cfg_src = Path(FOURDGS_CONFIGS) / config_name
     if not cfg_src.is_file():
         raise FileNotFoundError(f"Missing config: {cfg_src}")
 
@@ -265,7 +263,7 @@ def _train_4dgs_on_paths(
         env=train_env,
     )
 
-    sys.path.insert(0, "/repo/scripts")
+    sys.path.insert(0, FOURDGS_SCRIPTS)
     from export_4dgs_ply import export_checkpoint_to_ply
 
     def _ckpt_iter(path: Path) -> int:
@@ -324,7 +322,7 @@ def export_4dgs_ply(
     """Write SuperSplat PLY from a trained 4DGS checkpoint on the output volume."""
     import sys
 
-    sys.path.insert(0, "/repo/scripts")
+    sys.path.insert(0, FOURDGS_SCRIPTS)
     from export_4dgs_ply import export_checkpoint_to_ply
 
     model_dir = Path("/outputs/4dgs_sphere_bounce")
@@ -395,7 +393,7 @@ def render_4d_trajectory(
     model_dir = Path("/outputs/4dgs_sphere_bounce")
     ckpt = _pick_4d_checkpoint(model_dir, checkpoint_name)
 
-    cfg_src = Path("/repo_configs") / config_name
+    cfg_src = Path(FOURDGS_CONFIGS) / config_name
     if not cfg_src.is_file():
         raise FileNotFoundError(f"Missing config: {cfg_src}")
     cfg = OmegaConf.load(cfg_src)
@@ -414,7 +412,7 @@ def render_4d_trajectory(
     subprocess.run(
         [
             sys.executable,
-            "/repo/scripts/render_4dgs_trajectory.py",
+            f"{FOURDGS_SCRIPTS}/render_4dgs_trajectory.py",
             "--mode",
             "dataset",
             "--fourd-root",
@@ -469,7 +467,7 @@ def render_4d_orbit_job(
     model_dir = Path("/outputs/4dgs_sphere_bounce")
     ckpt = _pick_4d_checkpoint(model_dir, checkpoint_name)
 
-    cfg_src = Path("/repo_configs") / config_name
+    cfg_src = Path(FOURDGS_CONFIGS) / config_name
     if not cfg_src.is_file():
         raise FileNotFoundError(f"Missing config: {cfg_src}")
     cfg = OmegaConf.load(cfg_src)
@@ -487,7 +485,7 @@ def render_4d_orbit_job(
 
     cmd = [
         sys.executable,
-        "/repo/scripts/render_4dgs_trajectory.py",
+        f"{FOURDGS_SCRIPTS}/render_4dgs_trajectory.py",
         "--mode",
         "orbit",
         "--fourd-root",
@@ -544,7 +542,7 @@ def eval_4dgs_metrics_remote(
     model_dir = Path("/outputs/4dgs_sphere_bounce")
     ckpt = _pick_4d_checkpoint(model_dir, checkpoint_name)
 
-    cfg_src = Path("/repo_configs") / config_name
+    cfg_src = Path(FOURDGS_CONFIGS) / config_name
     if not cfg_src.is_file():
         raise FileNotFoundError(f"Missing config: {cfg_src}")
     cfg = OmegaConf.load(cfg_src)
@@ -558,7 +556,7 @@ def eval_4dgs_metrics_remote(
 
     cmd = [
         sys.executable,
-        "/repo/scripts/eval_4dgs_metrics.py",
+        f"{FOURDGS_SCRIPTS}/eval_4dgs_metrics.py",
         "--fourd-root",
         "/opt/4dgs",
         "--config",
@@ -792,7 +790,7 @@ def main(
         out_scene = (REPO_ROOT / upload_4d_path).resolve()
         default_scene = (REPO_ROOT / "outputs" / "sphere_bounce_m2" / "dynerf_sphere_bounce").resolve()
         if out_scene == default_scene:
-            export_script = REPO_ROOT / "scripts" / "export_4dgs_dataset.py"
+            export_script = REPO_ROOT / "4dgs" / "scripts" / "export_4dgs_dataset.py"
             subprocess.run(
                 [sys.executable, str(export_script), "--output", str(out_scene)],
                 check=True,

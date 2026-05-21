@@ -134,6 +134,12 @@ def _write_mp4(frames_dir: Path, out_mp4: Path, fps: float) -> None:
         raise FileNotFoundError(f"No frames in {frames_dir}")
     if shutil.which("ffmpeg"):
         try:
+            import sys
+            from pathlib import Path
+
+            _4d_scripts = Path(__file__).resolve().parent.parent / "4dgs" / "scripts"
+            if str(_4d_scripts) not in sys.path:
+                sys.path.insert(0, str(_4d_scripts))
             from render_4dgs_trajectory import _write_mp4_ffmpeg
 
             _write_mp4_ffmpeg(paths=[str(p) for p in paths], mp4_out=str(out_mp4), fps=fps)

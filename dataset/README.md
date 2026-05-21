@@ -143,7 +143,7 @@ that is still an integer multiple of the video FPS, for example:
 
 ## Convert To 4DGS Inputs
 
-Use `segmentation/02_object_only_4dgs/export_object_only_dynerf.py` to convert
+Use `4dgs/experiments/object_only/export_object_only_dynerf.py` to convert
 the generated dataset into the DyNeRF-style folder expected by the Modal 4DGS
 pipeline.
 
@@ -156,20 +156,20 @@ SCENE=dataset/outputs/ping_pong_12view_single_fast_room/scene_0000_e0p90_a0p0
 Full video, including room, table, and ball:
 
 ```bash
-phys_sim/bin/python segmentation/02_object_only_4dgs/export_object_only_dynerf.py \
+phys_sim/bin/python 4dgs/experiments/object_only/export_object_only_dynerf.py \
   --config "$SCENE/config.json" \
   --masks-root "$SCENE/masks" \
-  --output segmentation/02_object_only_4dgs/runs/ping_pong_room_full \
+  --output 4dgs/experiments/object_only/runs/ping_pong_room_full \
   --mode full
 ```
 
 Background-only video, with the ball removed:
 
 ```bash
-phys_sim/bin/python segmentation/02_object_only_4dgs/export_object_only_dynerf.py \
+phys_sim/bin/python 4dgs/experiments/object_only/export_object_only_dynerf.py \
   --config "$SCENE/config.json" \
   --masks-root "$SCENE/masks" \
-  --output segmentation/02_object_only_4dgs/runs/ping_pong_room_background \
+  --output 4dgs/experiments/object_only/runs/ping_pong_room_background \
   --mode background \
   --background black
 ```
@@ -177,10 +177,10 @@ phys_sim/bin/python segmentation/02_object_only_4dgs/export_object_only_dynerf.p
 Ball-only video, with everything outside the mask blacked out:
 
 ```bash
-phys_sim/bin/python segmentation/02_object_only_4dgs/export_object_only_dynerf.py \
+phys_sim/bin/python 4dgs/experiments/object_only/export_object_only_dynerf.py \
   --config "$SCENE/config.json" \
   --masks-root "$SCENE/masks" \
-  --output segmentation/02_object_only_4dgs/runs/ping_pong_room_ball_only \
+  --output 4dgs/experiments/object_only/runs/ping_pong_room_ball_only \
   --mode object \
   --background black
 ```
@@ -188,10 +188,10 @@ phys_sim/bin/python segmentation/02_object_only_4dgs/export_object_only_dynerf.p
 Ball+table foreground video, with the room/background blacked out:
 
 ```bash
-phys_sim/bin/python segmentation/02_object_only_4dgs/export_object_only_dynerf.py \
+phys_sim/bin/python 4dgs/experiments/object_only/export_object_only_dynerf.py \
   --config "$SCENE/config.json" \
   --masks-root "$SCENE/masks_ball_table" \
-  --output segmentation/02_object_only_4dgs/runs/ping_pong_room_ball_table_foreground \
+  --output 4dgs/experiments/object_only/runs/ping_pong_room_ball_table_foreground \
   --mode object \
   --background black
 ```
@@ -199,10 +199,10 @@ phys_sim/bin/python segmentation/02_object_only_4dgs/export_object_only_dynerf.p
 Room background with ball+table removed:
 
 ```bash
-phys_sim/bin/python segmentation/02_object_only_4dgs/export_object_only_dynerf.py \
+phys_sim/bin/python 4dgs/experiments/object_only/export_object_only_dynerf.py \
   --config "$SCENE/config.json" \
   --masks-root "$SCENE/masks_ball_table" \
-  --output segmentation/02_object_only_4dgs/runs/ping_pong_room_without_ball_table \
+  --output 4dgs/experiments/object_only/runs/ping_pong_room_without_ball_table \
   --mode background \
   --background black
 ```
@@ -234,8 +234,8 @@ commands above. Then run the following blocks one at a time.
 Upload the full-scene DyNeRF folder:
 
 ```bash
-python scripts/upload_4d_scene_to_modal.py \
-  segmentation/02_object_only_4dgs/runs/ping_pong_room_full \
+python 4dgs/scripts/upload_4d_scene_to_modal.py \
+  4dgs/experiments/object_only/runs/ping_pong_room_full \
   --modal-cmd "arch -arm64 modal"
 ```
 
@@ -270,7 +270,7 @@ arch -arm64 modal volume get phys4d-gs-output \
 Build local MP4 previews:
 
 ```bash
-phys_sim/bin/python scripts/build_4dgs_render_videos.py \
+phys_sim/bin/python 4dgs/scripts/build_4dgs_render_videos.py \
   latest_room_full_4dgs_download/latest
 ```
 
@@ -286,8 +286,8 @@ open latest_room_full_4dgs_download/latest/videos/test_cams_grid.mp4
 Upload the background-only DyNeRF folder:
 
 ```bash
-python scripts/upload_4d_scene_to_modal.py \
-  segmentation/02_object_only_4dgs/runs/ping_pong_room_background \
+python 4dgs/scripts/upload_4d_scene_to_modal.py \
+  4dgs/experiments/object_only/runs/ping_pong_room_background \
   --modal-cmd "arch -arm64 modal"
 ```
 
@@ -322,7 +322,7 @@ arch -arm64 modal volume get phys4d-gs-output \
 Build local MP4 previews:
 
 ```bash
-phys_sim/bin/python scripts/build_4dgs_render_videos.py \
+phys_sim/bin/python 4dgs/scripts/build_4dgs_render_videos.py \
   latest_room_background_4dgs_download/latest
 ```
 
@@ -338,8 +338,8 @@ open latest_room_background_4dgs_download/latest/videos/test_cams_grid.mp4
 Upload the ball-only DyNeRF folder:
 
 ```bash
-python scripts/upload_4d_scene_to_modal.py \
-  segmentation/02_object_only_4dgs/runs/ping_pong_room_ball_only \
+python 4dgs/scripts/upload_4d_scene_to_modal.py \
+  4dgs/experiments/object_only/runs/ping_pong_room_ball_only \
   --modal-cmd "arch -arm64 modal"
 ```
 
@@ -374,7 +374,7 @@ arch -arm64 modal volume get phys4d-gs-output \
 Build local MP4 previews:
 
 ```bash
-phys_sim/bin/python scripts/build_4dgs_render_videos.py \
+phys_sim/bin/python 4dgs/scripts/build_4dgs_render_videos.py \
   latest_room_ball_only_4dgs_download/latest
 ```
 
@@ -416,7 +416,7 @@ Download each variant before starting the next one.
 The local upload command chooses which variant to train:
 
 ```bash
-python scripts/upload_4d_scene_to_modal.py <local_dynerf_folder> --modal-cmd "arch -arm64 modal"
+python 4dgs/scripts/upload_4d_scene_to_modal.py <local_dynerf_folder> --modal-cmd "arch -arm64 modal"
 ```
 
 The train command trains whatever was last uploaded:
@@ -453,7 +453,7 @@ background, or ball-only by itself. It trains whatever was last uploaded to
 So the selector is the upload command:
 
 ```bash
-python scripts/upload_4d_scene_to_modal.py <local_dynerf_folder> --modal-cmd "arch -arm64 modal"
+python 4dgs/scripts/upload_4d_scene_to_modal.py <local_dynerf_folder> --modal-cmd "arch -arm64 modal"
 ```
 
 The render download should be a directory containing `latest/*.png`. If the
@@ -468,7 +468,7 @@ arch -arm64 modal volume get phys4d-gs-output 4dgs_renders/latest latest_room_cu
 Then build videos from:
 
 ```bash
-phys_sim/bin/python scripts/build_4dgs_render_videos.py latest_room_current_download/latest
+phys_sim/bin/python 4dgs/scripts/build_4dgs_render_videos.py latest_room_current_download/latest
 ```
 
 ## Legacy Notebook Export
@@ -507,7 +507,7 @@ dataset/outputs/ping_pong_12view_single_fast_room/scene_0000_e0p90_a0p0
 
 Generate it with the Quick Start command in dataset/README.md. It produces RGB,
 ball masks, cameras.json, object_poses.csv, config.json, and preview MP4s. For
-4DGS, convert it with segmentation/02_object_only_4dgs/export_object_only_dynerf.py.
+4DGS, convert it with 4dgs/experiments/object_only/export_object_only_dynerf.py.
 Use --mode full for the full room, --mode background to remove the ball, and
 --mode object for ball-only. Modal always overwrites its remote 4DGS output, so
 download each variant before training/rendering the next one.

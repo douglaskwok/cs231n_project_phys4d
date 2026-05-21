@@ -10,6 +10,7 @@ Multi-view video → **4DGS** (perception) → per-object **states** + **t=0 vis
 | [`docs/WORKFLOW_COMMANDS.md`](docs/WORKFLOW_COMMANDS.md) | **All commands** (local + Modal) |
 | [`docs/PIPELINE_FROM_SCRATCH.md`](docs/PIPELINE_FROM_SCRATCH.md) | High-level flow |
 | [`docs/PROJECT_CHECKLIST.md`](docs/PROJECT_CHECKLIST.md) | Implementation status |
+| [`4dgs/README.md`](4dgs/README.md) | **4DGS** export, Modal train, render, eval |
 
 ## Quick start
 

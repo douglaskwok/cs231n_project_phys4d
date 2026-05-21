@@ -34,7 +34,7 @@ This file tracks implementation status for the CS231N Phys4D / Milestone 2 direc
 
 ## Next (short list)
 
-1. ~~Automated PSNR / MAE on 4DGS train+test views~~ (`scripts/eval_4dgs_metrics.py`, Modal `--eval-4d`); record numbers in this file after each train.
+1. ~~Automated PSNR / MAE on 4DGS train+test views~~ (`4dgs/scripts/eval_4dgs_metrics.py`, Modal `--eval-4d`); record numbers in this file after each train.
 2. ~~Optional orbit render~~ (`modal run modal_app.py --render-4d-orbit`) for smoother fly-around clips.
 3. Fix / validate camera projection (mask hit rate still low; likely axis/FOV tweak in `camera_project.py`).
 4. Differentiable rasterizer or image loss on held-out cameras/frames.

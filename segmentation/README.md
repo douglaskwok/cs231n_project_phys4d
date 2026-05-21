@@ -10,9 +10,9 @@ Use masks to select which already-trained full-scene Gaussians belong to the bal
 
 ## 02: Object-Only 4DGS
 
-Folder: `02_object_only_4dgs/`
+Folder: [`4dgs/experiments/object_only/`](../4dgs/experiments/object_only/)
 
-Use masks to create a ball-only DyNeRF/4DGS dataset, then train upstream fudan 4DGS on Modal. This is more experimental because the ball is small and smooth.
+Use masks to create a ball-only DyNeRF/4DGS dataset, then train upstream fudan 4DGS on Modal. This is more experimental because the ball is small and smooth. See also [`4dgs/README.md`](../4dgs/README.md).
 
 ## SA4D-Inspired: Gaussian Identity Table
 
@@ -25,7 +25,7 @@ Build a multi-frame Gaussian identity table from a full-scene 4DGS PLY and objec
 `modal_app.py --upload-4d` now accepts:
 
 ```bash
---upload-4d-path segmentation/02_object_only_4dgs/dynerf_ball_only
+--upload-4d-path 4dgs/experiments/object_only/runs/dynerf_ball_only
 ```
 
 If omitted, it keeps the original behavior and exports/uploads `outputs/sphere_bounce_m2/dynerf_sphere_bounce`.

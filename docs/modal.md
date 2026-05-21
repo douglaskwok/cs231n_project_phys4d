@@ -55,7 +55,7 @@ Do not create an empty `local_gs_out/` directory before download (Modal may erro
 ## 4D Gaussian Splatting (full bounce)
 
 ```bash
-python scripts/export_4dgs_dataset.py
+python 4dgs/scripts/export_4dgs_dataset.py
 modal run modal_app.py --upload-4d
 modal run modal_app.py --train-4d
 modal volume get phys4d-gs-output 4dgs_sphere_bounce . --force
@@ -92,7 +92,7 @@ modal volume get phys4d-gs-output 4dgs_eval/metrics_4dgs.json . --force
 Quick eval (subsample views): `--eval-4d-dry-run-max 80`.
 
 - Repo: [fudan-zvg/4d-gaussian-splatting](https://github.com/fudan-zvg/4d-gaussian-splatting)
-- Config: `configs/sphere_bounce_4dgs.yaml` (15k iters, `gaussian_dim: 4`, `time_duration` matched to train frames)
+- Config: `4dgs/configs/sphere_bounce_4dgs.yaml` (15k iters, `gaussian_dim: 4`, `time_duration` matched to train frames)
 - Volume paths: `phys4d-gs-data:/4d_scene`, output `phys4d-gs-output/4dgs_sphere_bounce/`
 
 First `--train-4d` builds a separate image (`/opt/4dgs` + `simple-knn`, `pointops2`, rasterizer); expect several minutes.

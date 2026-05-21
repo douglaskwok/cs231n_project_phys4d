@@ -6,13 +6,18 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+_FOURDGS_DIR = Path(__file__).resolve().parents[2]
+if str(_FOURDGS_DIR) not in sys.path:
+    sys.path.insert(0, str(_FOURDGS_DIR))
+
+from _paths import REPO_ROOT  # noqa: E402
 
 
 def view_matrix_to_c2w(view_col_major_16: list[float]) -> np.ndarray:
@@ -247,7 +252,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=REPO_ROOT / "configs" / "sphere_bounce_m2.json")
     parser.add_argument("--masks-root", type=Path, default=REPO_ROOT / "outputs" / "sphere_bounce_m2" / "masks")
-    parser.add_argument("--output", type=Path, default=REPO_ROOT / "segmentation" / "02_object_only_4dgs" / "dynerf_ball_only")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=REPO_ROOT / "4dgs" / "experiments" / "object_only" / "runs" / "dynerf_ball_only",
+    )
     parser.add_argument("--background", choices=("black", "white"), default="black")
     parser.add_argument(
         "--mode",

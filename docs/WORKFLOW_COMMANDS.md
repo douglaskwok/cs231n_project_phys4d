@@ -178,7 +178,7 @@ python scripts/run_visual_dynamics_ablations.py
 Separate track: reconstruct dynamic scene with fudan 4DGS.
 
 ```bash
-python scripts/export_4dgs_dataset.py
+python 4dgs/scripts/export_4dgs_dataset.py
 modal run modal_app.py --upload-4d
 modal run modal_app.py --train-4d
 modal run modal_app.py --render-4d
