@@ -1,0 +1,46 @@
+{
+  "format": "dynerf_object",
+  "source_config": "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/dataset/outputs/ping_pong_12view_single_fast_room/scene_0000_e0p90_a0p0/config.json",
+  "rgb_root": "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/dataset/outputs/ping_pong_12view_single_fast_room/scene_0000_e0p90_a0p0/rgb",
+  "masks_root": "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/dataset/outputs/ping_pong_12view_single_fast_room/scene_0000_e0p90_a0p0/masks_ball_table",
+  "mode": "object",
+  "background": "black",
+  "fps": 60.0,
+  "train_cameras": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "test_cameras": [
+    10,
+    11
+  ],
+  "train_frame_range": [
+    0,
+    59
+  ],
+  "test_frame_range": [
+    60,
+    89
+  ],
+  "num_train_views": 600,
+  "num_test_views": 60,
+  "empty_train_masks": 0,
+  "empty_test_masks": 0,
+  "image_size": [
+    960,
+    544
+  ],
+  "fov_deg": 60.0,
+  "time_duration_suggested": [
+    0.0,
+    0.9833333333333333
+  ]
+}

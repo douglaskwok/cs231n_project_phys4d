@@ -668,6 +668,13 @@ room_physics_4dgs_quick_2p6s.yaml  collision and deformable
 room_physics_4dgs_quick_5p0s.yaml  stacking
 ```
 
+For quality 4DGS runs, use the 15k-iteration configs:
+
+```text
+room_physics_4dgs_2p6s.yaml  collision and deformable
+room_physics_4dgs_5p0s.yaml  stacking
+```
+
 The Modal 4DGS pipeline still overwrites `/data/4d_scene`,
 `/outputs/4dgs_sphere_bounce`, and `/outputs/4dgs_renders/latest`, so train and
 download one scenario at a time.
