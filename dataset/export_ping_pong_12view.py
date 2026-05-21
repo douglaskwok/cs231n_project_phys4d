@@ -38,8 +38,9 @@ WIDTH = 960
 HEIGHT = 544
 VIDEO_FPS = 60.0
 SIM_HZ = 480.0
-STEPS_PER_FRAME = int(SIM_HZ // VIDEO_FPS)
 DURATION_SEC = 4.0
+TRAIN_DURATION_SEC = 1.0
+TEST_DURATION_SEC = 0.5
 TABLE_TOP_Z = 0.75
 TABLE_LENGTH = 1.20
 TABLE_WIDTH = 0.80
@@ -55,6 +56,12 @@ BALL_ROLLING_FRICTION = 0.0005
 BALL_SPINNING_FRICTION = 0.0005
 TABLE_LATERAL_FRICTION = 0.35
 TARGET = [0.0, 0.0, TABLE_TOP_Z + 0.20]
+ROOM_HALF_X = 2.60
+ROOM_HALF_Y = 2.60
+ROOM_HEIGHT = 2.20
+ROOM_WALL_THICKNESS = 0.06
+ROOM_FLOOR_THICKNESS = 0.06
+ROOM_FLOOR_Z = 0.0
 DATASET_OUTPUTS_ROOT = REPO_ROOT / "dataset" / "outputs"
 DEFAULT_OUTPUT_DIR = DATASET_OUTPUTS_ROOT / "ping_pong_12view"
 
@@ -78,7 +85,7 @@ def _ensure_pybullet():
         raise SystemExit(1) from exc
 
 
-def _open_mp4_writer(imageio_module, path: Path):
+def _open_mp4_writer(imageio_module, path: Path, *, fps: float = VIDEO_FPS):
     try:
         import imageio_ffmpeg  # noqa: F401
     except ImportError as exc:
@@ -90,7 +97,7 @@ def _open_mp4_writer(imageio_module, path: Path):
     return imageio_module.get_writer(
         path,
         format="FFMPEG",
-        fps=VIDEO_FPS,
+        fps=fps,
         codec="libx264",
         quality=8,
         macro_block_size=16,
@@ -293,6 +300,132 @@ def _flat_surface_basis() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     tangent_y = np.array([0.0, 1.0, 0.0], dtype=np.float64)
     normal = np.array([0.0, 0.0, 1.0], dtype=np.float64)
     return tangent_x, tangent_y, normal
+
+
+def _create_static_box(
+    p,
+    client: int,
+    *,
+    half_extents: list[float],
+    position: list[float],
+    rgba_color: list[float],
+    collision: bool = True,
+    lateral_friction: float = 0.80,
+    restitution: float = 0.05,
+) -> int:
+    col = -1
+    if collision:
+        col = p.createCollisionShape(
+            p.GEOM_BOX,
+            halfExtents=half_extents,
+            physicsClientId=client,
+        )
+    vis = p.createVisualShape(
+        p.GEOM_BOX,
+        halfExtents=half_extents,
+        rgbaColor=rgba_color,
+        physicsClientId=client,
+    )
+    body_id = p.createMultiBody(
+        baseMass=0.0,
+        baseCollisionShapeIndex=col,
+        baseVisualShapeIndex=vis,
+        basePosition=position,
+        physicsClientId=client,
+    )
+    if collision:
+        p.changeDynamics(
+            body_id,
+            -1,
+            lateralFriction=lateral_friction,
+            restitution=restitution,
+            physicsClientId=client,
+        )
+    return body_id
+
+
+def _create_room_geometry(p, client: int) -> dict:
+    """Create a simple room around the table so full-video 4DGS has anchors."""
+
+    wall_z = ROOM_FLOOR_Z + ROOM_HEIGHT / 2.0
+    floor_z = ROOM_FLOOR_Z - ROOM_FLOOR_THICKNESS / 2.0
+    floor_color = [0.70, 0.69, 0.64, 1.0]
+    wall_front_color = [0.78, 0.82, 0.86, 1.0]
+    wall_back_color = [0.83, 0.79, 0.72, 1.0]
+    wall_left_color = [0.73, 0.80, 0.76, 1.0]
+    wall_right_color = [0.84, 0.78, 0.82, 1.0]
+
+    bodies = {
+        "floor": _create_static_box(
+            p,
+            client,
+            half_extents=[ROOM_HALF_X, ROOM_HALF_Y, ROOM_FLOOR_THICKNESS / 2.0],
+            position=[0.0, 0.0, floor_z],
+            rgba_color=floor_color,
+            lateral_friction=0.85,
+            restitution=0.10,
+        ),
+        "front_wall": _create_static_box(
+            p,
+            client,
+            half_extents=[ROOM_HALF_X, ROOM_WALL_THICKNESS / 2.0, ROOM_HEIGHT / 2.0],
+            position=[0.0, -ROOM_HALF_Y - ROOM_WALL_THICKNESS / 2.0, wall_z],
+            rgba_color=wall_front_color,
+        ),
+        "back_wall": _create_static_box(
+            p,
+            client,
+            half_extents=[ROOM_HALF_X, ROOM_WALL_THICKNESS / 2.0, ROOM_HEIGHT / 2.0],
+            position=[0.0, ROOM_HALF_Y + ROOM_WALL_THICKNESS / 2.0, wall_z],
+            rgba_color=wall_back_color,
+        ),
+        "left_wall": _create_static_box(
+            p,
+            client,
+            half_extents=[ROOM_WALL_THICKNESS / 2.0, ROOM_HALF_Y, ROOM_HEIGHT / 2.0],
+            position=[-ROOM_HALF_X - ROOM_WALL_THICKNESS / 2.0, 0.0, wall_z],
+            rgba_color=wall_left_color,
+        ),
+        "right_wall": _create_static_box(
+            p,
+            client,
+            half_extents=[ROOM_WALL_THICKNESS / 2.0, ROOM_HALF_Y, ROOM_HEIGHT / 2.0],
+            position=[ROOM_HALF_X + ROOM_WALL_THICKNESS / 2.0, 0.0, wall_z],
+            rgba_color=wall_right_color,
+        ),
+    }
+
+    # Low-relief visual markers make the synthetic room usable as a 4DGS anchor,
+    # without adding collision clutter near the table or ball.
+    marker_specs = [
+        ("back_blue", [0.28, 0.42, 0.95, 1.0], [-0.95, ROOM_HALF_Y - 0.002, 0.92], [0.28, 0.006, 0.20]),
+        ("back_yellow", [0.95, 0.72, 0.18, 1.0], [0.95, ROOM_HALF_Y - 0.002, 1.35], [0.22, 0.006, 0.24]),
+        ("front_red", [0.90, 0.30, 0.25, 1.0], [0.85, -ROOM_HALF_Y + 0.002, 0.98], [0.24, 0.006, 0.18]),
+        ("left_teal", [0.12, 0.62, 0.62, 1.0], [-ROOM_HALF_X + 0.002, -0.85, 1.18], [0.006, 0.24, 0.24]),
+        ("right_green", [0.32, 0.68, 0.28, 1.0], [ROOM_HALF_X - 0.002, 0.75, 1.08], [0.006, 0.28, 0.20]),
+        ("floor_marker", [0.35, 0.35, 0.38, 1.0], [0.95, 0.70, ROOM_FLOOR_Z + 0.004], [0.28, 0.18, 0.004]),
+    ]
+    markers = {}
+    for name, color, position, half_extents in marker_specs:
+        markers[name] = _create_static_box(
+            p,
+            client,
+            half_extents=half_extents,
+            position=position,
+            rgba_color=color,
+            collision=False,
+        )
+
+    return {
+        "name": "room_with_floor_and_walls",
+        "floor_z_m": ROOM_FLOOR_Z,
+        "half_extents_m": [ROOM_HALF_X, ROOM_HALF_Y, ROOM_HEIGHT],
+        "wall_thickness_m": ROOM_WALL_THICKNESS,
+        "floor_thickness_m": ROOM_FLOOR_THICKNESS,
+        "has_ceiling": False,
+        "anchor_markers": list(markers.keys()),
+        "body_ids": {**bodies, **markers},
+    }
 
 
 def _initial_velocity_for_ball_angle(
@@ -524,12 +657,45 @@ def _write_pose_rows(pose_rows: list[dict], dst: Path) -> None:
         writer.writerows(pose_rows)
 
 
+def _steps_per_frame(video_fps: float, sim_hz: float) -> int:
+    raw = sim_hz / video_fps
+    steps = int(round(raw))
+    if steps < 1:
+        raise ValueError(
+            f"--sim-hz ({sim_hz}) must be at least --video-fps ({video_fps})."
+        )
+    if not math.isclose(raw, steps, rel_tol=0.0, abs_tol=1e-6):
+        raise ValueError(
+            f"--sim-hz ({sim_hz}) must be an integer multiple of --video-fps "
+            f"({video_fps}) so frames land on simulation steps. Try 480/60, "
+            "480/120, 480/240, or raise --sim-hz."
+        )
+    return steps
+
+
+def _frame_split_ranges(num_frames: int, video_fps: float) -> tuple[list[int], list[int]]:
+    train_end = max(0, min(int(round(TRAIN_DURATION_SEC * video_fps)) - 1, num_frames - 1))
+    test_start = min(train_end + 1, max(0, num_frames - 1))
+    test_end = max(
+        test_start,
+        min(
+            int(round((TRAIN_DURATION_SEC + TEST_DURATION_SEC) * video_fps)) - 1,
+            max(0, num_frames - 1),
+        ),
+    )
+    return [0, train_end], [test_start, test_end]
+
+
 def _simulate_variation_scene(
     *,
     scene_dir: Path,
     restitution: float,
     ball_angle_deg: float,
     ball_radius_m: float,
+    environment: str,
+    video_fps: float,
+    sim_hz: float,
+    duration_sec: float,
     render_camera_names: set[str] | None,
     max_frames: int | None,
     overwrite: bool,
@@ -540,17 +706,30 @@ def _simulate_variation_scene(
     import imageio.v2 as imageio
     import pybullet_data
 
+    steps_per_frame = _steps_per_frame(video_fps, sim_hz)
     client = p.connect(p.DIRECT)
     p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=client)
     p.setGravity(0.0, 0.0, GRAVITY, physicsClientId=client)
-    p.setTimeStep(1.0 / SIM_HZ, physicsClientId=client)
+    p.setTimeStep(1.0 / sim_hz, physicsClientId=client)
     p.setPhysicsEngineParameter(
-        fixedTimeStep=1.0 / SIM_HZ,
+        fixedTimeStep=1.0 / sim_hz,
         numSolverIterations=150,
         numSubSteps=2,
         deterministicOverlappingPairs=1,
         physicsClientId=client,
     )
+
+    if environment == "room":
+        environment_info = _create_room_geometry(p, client)
+    elif environment == "tabletop":
+        environment_info = {
+            "name": "tabletop_only_black_background",
+            "floor_z_m": None,
+            "has_ceiling": False,
+            "anchor_markers": [],
+        }
+    else:
+        raise ValueError(f"Unknown environment: {environment}")
 
     tangent_x, tangent_y, normal = _flat_surface_basis()
     table_orientation = p.getQuaternionFromEuler([0.0, 0.0, 0.0])
@@ -634,23 +813,34 @@ def _simulate_variation_scene(
     scene_dir.mkdir(parents=True, exist_ok=True)
     rgb_root = scene_dir / "rgb"
     masks_root = scene_dir / "masks"
+    table_masks_root = scene_dir / "masks_table"
+    ball_table_masks_root = scene_dir / "masks_ball_table"
     videos_rgb_root = scene_dir / "videos" / "rgb"
     videos_masks_root = scene_dir / "videos" / "masks"
+    videos_table_masks_root = scene_dir / "videos" / "masks_table"
+    videos_ball_table_masks_root = scene_dir / "videos" / "masks_ball_table"
     rgb_root.mkdir(parents=True, exist_ok=True)
     masks_root.mkdir(parents=True, exist_ok=True)
+    table_masks_root.mkdir(parents=True, exist_ok=True)
+    ball_table_masks_root.mkdir(parents=True, exist_ok=True)
     if write_videos:
         videos_rgb_root.mkdir(parents=True, exist_ok=True)
         videos_masks_root.mkdir(parents=True, exist_ok=True)
+        videos_table_masks_root.mkdir(parents=True, exist_ok=True)
+        videos_ball_table_masks_root.mkdir(parents=True, exist_ok=True)
     with (scene_dir / "cameras.json").open("w", encoding="utf-8") as f:
         json.dump({"cameras": camera_records}, f, indent=2)
 
-    num_frames = int(DURATION_SEC * VIDEO_FPS) + 1
+    num_frames = int(duration_sec * video_fps) + 1
     if max_frames is not None:
         num_frames = min(num_frames, int(max_frames))
+    train_frames, test_frames = _frame_split_ranges(num_frames, video_fps)
 
     pose_rows: list[dict] = []
     empty_masks = 0
-    video_writers: dict[int, tuple[object | None, object | None]] = {}
+    empty_table_masks = 0
+    empty_ball_table_masks = 0
+    video_writers: dict[int, tuple[object | None, object | None, object | None, object | None]] = {}
     try:
         if write_videos:
             for cam in camera_records:
@@ -660,13 +850,30 @@ def _simulate_variation_scene(
                     continue
                 rgb_video_path = videos_rgb_root / f"cam{cam_idx:02d}_{name}.mp4"
                 mask_video_path = videos_masks_root / f"cam{cam_idx:02d}_{name}.mp4"
+                table_mask_video_path = videos_table_masks_root / f"cam{cam_idx:02d}_{name}.mp4"
+                ball_table_mask_video_path = videos_ball_table_masks_root / f"cam{cam_idx:02d}_{name}.mp4"
                 rgb_writer = None
                 mask_writer = None
+                table_mask_writer = None
+                ball_table_mask_writer = None
                 if overwrite or not rgb_video_path.exists():
-                    rgb_writer = _open_mp4_writer(imageio, rgb_video_path)
+                    rgb_writer = _open_mp4_writer(imageio, rgb_video_path, fps=video_fps)
                 if overwrite or not mask_video_path.exists():
-                    mask_writer = _open_mp4_writer(imageio, mask_video_path)
-                video_writers[cam_idx] = (rgb_writer, mask_writer)
+                    mask_writer = _open_mp4_writer(imageio, mask_video_path, fps=video_fps)
+                if overwrite or not table_mask_video_path.exists():
+                    table_mask_writer = _open_mp4_writer(imageio, table_mask_video_path, fps=video_fps)
+                if overwrite or not ball_table_mask_video_path.exists():
+                    ball_table_mask_writer = _open_mp4_writer(
+                        imageio,
+                        ball_table_mask_video_path,
+                        fps=video_fps,
+                    )
+                video_writers[cam_idx] = (
+                    rgb_writer,
+                    mask_writer,
+                    table_mask_writer,
+                    ball_table_mask_writer,
+                )
 
         for frame_idx in range(num_frames):
             if frame_idx == 0 or frame_idx % 30 == 0 or frame_idx == num_frames - 1:
@@ -680,7 +887,7 @@ def _simulate_variation_scene(
             contacts = p.getContactPoints(bodyA=ball_id, bodyB=table_id, physicsClientId=client)
             pose_rows.append(
                 {
-                    "time_s": frame_idx / VIDEO_FPS,
+                    "time_s": frame_idx / video_fps,
                     "frame": frame_idx,
                     "x_m": float(pos[0]),
                     "y_m": float(pos[1]),
@@ -703,8 +910,12 @@ def _simulate_variation_scene(
                 cam_idx = int(cam["index"])
                 rgb_dir = rgb_root / f"cam{cam_idx:02d}"
                 mask_dir = masks_root / f"cam{cam_idx:02d}"
+                table_mask_dir = table_masks_root / f"cam{cam_idx:02d}"
+                ball_table_mask_dir = ball_table_masks_root / f"cam{cam_idx:02d}"
                 rgb_dir.mkdir(parents=True, exist_ok=True)
                 mask_dir.mkdir(parents=True, exist_ok=True)
+                table_mask_dir.mkdir(parents=True, exist_ok=True)
+                ball_table_mask_dir.mkdir(parents=True, exist_ok=True)
                 img = p.getCameraImage(
                     width=WIDTH,
                     height=HEIGHT,
@@ -716,31 +927,48 @@ def _simulate_variation_scene(
                 rgb = np.reshape(img[2], (HEIGHT, WIDTH, 4))[:, :, :3].astype(np.uint8)
                 seg = np.reshape(img[4], (HEIGHT, WIDTH))
                 mask = (seg == ball_id).astype(np.uint8) * 255
+                table_mask = (seg == table_id).astype(np.uint8) * 255
+                ball_table_mask = ((seg == ball_id) | (seg == table_id)).astype(np.uint8) * 255
                 if not mask.any():
                     empty_masks += 1
+                if not table_mask.any():
+                    empty_table_masks += 1
+                if not ball_table_mask.any():
+                    empty_ball_table_masks += 1
 
                 frame_name = f"frame{frame_idx:05d}.png"
                 rgb_path = rgb_dir / frame_name
                 mask_path = mask_dir / frame_name
+                table_mask_path = table_mask_dir / frame_name
+                ball_table_mask_path = ball_table_mask_dir / frame_name
                 if overwrite or not rgb_path.exists():
                     imageio.imwrite(rgb_path, rgb)
                 if overwrite or not mask_path.exists():
                     imageio.imwrite(mask_path, mask)
+                if overwrite or not table_mask_path.exists():
+                    imageio.imwrite(table_mask_path, table_mask)
+                if overwrite or not ball_table_mask_path.exists():
+                    imageio.imwrite(ball_table_mask_path, ball_table_mask)
                 if cam_idx in video_writers:
-                    rgb_writer, mask_writer = video_writers[cam_idx]
+                    rgb_writer, mask_writer, table_mask_writer, ball_table_mask_writer = video_writers[cam_idx]
                     if rgb_writer is not None:
                         rgb_writer.append_data(rgb)
                     if mask_writer is not None:
                         mask_writer.append_data(np.repeat(mask[..., None], 3, axis=2))
+                    if table_mask_writer is not None:
+                        table_mask_writer.append_data(np.repeat(table_mask[..., None], 3, axis=2))
+                    if ball_table_mask_writer is not None:
+                        ball_table_mask_writer.append_data(
+                            np.repeat(ball_table_mask[..., None], 3, axis=2)
+                        )
 
-            for _ in range(STEPS_PER_FRAME):
+            for _ in range(steps_per_frame):
                 p.stepSimulation(physicsClientId=client)
     finally:
-        for rgb_writer, mask_writer in video_writers.values():
-            if rgb_writer is not None:
-                rgb_writer.close()
-            if mask_writer is not None:
-                mask_writer.close()
+        for writers in video_writers.values():
+            for writer in writers:
+                if writer is not None:
+                    writer.close()
         p.disconnect(physicsClientId=client)
     _write_pose_rows(pose_rows, scene_dir / "object_poses.csv")
 
@@ -752,6 +980,7 @@ def _simulate_variation_scene(
             "true_restitution": restitution,
             "ball_angle_deg": ball_angle_deg,
             "ball_angle_note": "Approximate first-impact trajectory angle from vertical in vacuum; implemented by horizontal launch speed along +x.",
+            "environment": environment_info,
             "surface_normal": surface_normal,
             "objects": [
                 {
@@ -775,14 +1004,14 @@ def _simulate_variation_scene(
         },
         "simulation": {
             "physics_engine": "pybullet",
-            "dt_s": 1.0 / VIDEO_FPS,
-            "internal_dt_s": 1.0 / SIM_HZ,
-            "steps_per_frame": STEPS_PER_FRAME,
+            "dt_s": 1.0 / video_fps,
+            "internal_dt_s": 1.0 / sim_hz,
+            "steps_per_frame": steps_per_frame,
             "num_frames": num_frames,
-            "duration_s": (num_frames - 1) / VIDEO_FPS if num_frames else 0.0,
+            "duration_s": (num_frames - 1) / video_fps if num_frames else 0.0,
             "gravity_m_s2": [0.0, 0.0, GRAVITY],
-            "train_frames": [0, max(0, min(59, num_frames - 1))],
-            "test_frames": [min(60, max(0, num_frames - 1)), max(0, min(89, num_frames - 1))],
+            "train_frames": train_frames,
+            "test_frames": test_frames,
         },
         "cameras": {
             "num_cameras": len(camera_records),
@@ -795,8 +1024,12 @@ def _simulate_variation_scene(
         "outputs": {
             "rgb_frames": _repo_path(scene_dir / "rgb"),
             "masks": _repo_path(scene_dir / "masks"),
+            "table_masks": _repo_path(scene_dir / "masks_table"),
+            "ball_table_masks": _repo_path(scene_dir / "masks_ball_table"),
             "rgb_videos": _repo_path(scene_dir / "videos" / "rgb"),
             "mask_videos": _repo_path(scene_dir / "videos" / "masks"),
+            "table_mask_videos": _repo_path(scene_dir / "videos" / "masks_table"),
+            "ball_table_mask_videos": _repo_path(scene_dir / "videos" / "masks_ball_table"),
             "camera_poses": _repo_path(scene_dir / "cameras.json"),
             "object_poses": _repo_path(scene_dir / "object_poses.csv"),
             "metadata": _repo_path(scene_dir / "metadata.json"),
@@ -811,6 +1044,7 @@ def _simulate_variation_scene(
         "fixed_params": {
             "mass_kg": BALL_MASS,
             "radius_m": ball_radius_m,
+            "environment": environment,
             "initial_direction": "+x",
             "ball_lateral_friction": BALL_LATERAL_FRICTION,
             "table_lateral_friction": TABLE_LATERAL_FRICTION,
@@ -827,12 +1061,26 @@ def _simulate_variation_scene(
         "num_frames": num_frames,
         "num_cameras": len(camera_records),
         "camera_names": camera_names,
+        "video_fps": video_fps,
+        "sim_hz": sim_hz,
+        "steps_per_frame": steps_per_frame,
+        "duration_s": (num_frames - 1) / video_fps if num_frames else 0.0,
+        "environment": environment_info,
         "empty_masks": empty_masks,
+        "empty_table_masks": empty_table_masks,
+        "empty_ball_table_masks": empty_ball_table_masks,
+        "mask_outputs": {
+            "ball": _repo_path(masks_root),
+            "table": _repo_path(table_masks_root),
+            "ball_table": _repo_path(ball_table_masks_root),
+        },
         "videos_written": write_videos,
         "render_camera_names": "all" if render_camera_names is None else sorted(render_camera_names),
         "video_camera_names": "all" if video_camera_names is None else sorted(video_camera_names),
         "rgb_videos": _repo_path(videos_rgb_root) if write_videos else None,
         "mask_videos": _repo_path(videos_masks_root) if write_videos else None,
+        "table_mask_videos": _repo_path(videos_table_masks_root) if write_videos else None,
+        "ball_table_mask_videos": _repo_path(videos_ball_table_masks_root) if write_videos else None,
         "physics_params": physics_params,
     }
     with (scene_dir / "metadata.json").open("w", encoding="utf-8") as f:
@@ -848,6 +1096,10 @@ def generate_variation_dataset(
     restitution: float,
     ball_angle_deg: float,
     ball_radius_m: float,
+    environment: str,
+    video_fps: float,
+    sim_hz: float,
+    duration_sec: float,
     render_camera_names: set[str] | None,
     max_frames: int | None,
     overwrite: bool,
@@ -871,6 +1123,11 @@ def generate_variation_dataset(
             "output_dir": str(output_dir),
             "num_scenes": len(planned),
             "ball_radius_m": ball_radius_m,
+            "environment": environment,
+            "video_fps": video_fps,
+            "sim_hz": sim_hz,
+            "duration_sec": duration_sec,
+            "steps_per_frame": _steps_per_frame(video_fps, sim_hz),
             "render_camera_names": "all" if render_camera_names is None else sorted(render_camera_names),
             "video_camera_names": "all" if video_camera_names is None else sorted(video_camera_names),
             "scenes": planned,
@@ -891,6 +1148,10 @@ def generate_variation_dataset(
             restitution=params["restitution"],
             ball_angle_deg=params["ball_angle_deg"],
             ball_radius_m=ball_radius_m,
+            environment=environment,
+            video_fps=video_fps,
+            sim_hz=sim_hz,
+            duration_sec=duration_sec,
             render_camera_names=render_camera_names,
             max_frames=max_frames,
             overwrite=overwrite,
@@ -915,9 +1176,15 @@ def generate_variation_dataset(
         "batch_root": _repo_path(output_dir),
         "num_scenes": len(manifest_scenes),
         "param_names": ["restitution", "ball_angle_deg"],
+        "environment": environment,
+        "video_fps": video_fps,
+        "sim_hz": sim_hz,
+        "duration_sec": duration_sec,
+        "steps_per_frame": _steps_per_frame(video_fps, sim_hz),
         "fixed_params": {
             "mass_kg": BALL_MASS,
             "radius_m": ball_radius_m,
+            "environment": environment,
             "initial_direction": "+x",
             "drop_height_above_surface_m": BALL_START_HEIGHT_ABOVE_SURFACE,
             "drag_enabled": False,
@@ -1002,12 +1269,56 @@ def main() -> int:
             f"Default: {BALL_RADIUS}."
         ),
     )
+    parser.add_argument(
+        "--environment",
+        choices=["room", "tabletop"],
+        default="room",
+        help=(
+            "Generated-scene background/environment. 'room' adds a floor, "
+            "four walls, and visual anchor panels. 'tabletop' keeps the old "
+            "black-background tabletop scene. Default: room."
+        ),
+    )
+    parser.add_argument(
+        "--video-fps",
+        type=float,
+        default=VIDEO_FPS,
+        help=(
+            "Output/render FPS for generated variation scenes. "
+            f"Default: {VIDEO_FPS}. Try 120 for denser temporal supervision."
+        ),
+    )
+    parser.add_argument(
+        "--sim-hz",
+        type=float,
+        default=SIM_HZ,
+        help=(
+            "Internal PyBullet simulation frequency. Must be an integer multiple "
+            f"of --video-fps. Default: {SIM_HZ}."
+        ),
+    )
+    parser.add_argument(
+        "--duration-sec",
+        type=float,
+        default=DURATION_SEC,
+        help=(
+            "Generated scene duration before --max-frames is applied. "
+            f"Default: {DURATION_SEC}."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     video_camera_names = _parse_video_camera_names(args.video_camera_names)
     render_camera_names = _parse_video_camera_names(args.render_camera_names)
     if args.ball_radius_m <= 0:
         raise ValueError("--ball-radius-m must be positive.")
+    if args.video_fps <= 0:
+        raise ValueError("--video-fps must be positive.")
+    if args.sim_hz <= 0:
+        raise ValueError("--sim-hz must be positive.")
+    if args.duration_sec <= 0:
+        raise ValueError("--duration-sec must be positive.")
+    _steps_per_frame(args.video_fps, args.sim_hz)
 
     output_dir = args.output_dir
     if args.variation_set != "none" and output_dir == DEFAULT_OUTPUT_DIR:
@@ -1021,6 +1332,10 @@ def main() -> int:
             restitution=args.restitution,
             ball_angle_deg=args.ball_angle_deg,
             ball_radius_m=args.ball_radius_m,
+            environment=args.environment,
+            video_fps=args.video_fps,
+            sim_hz=args.sim_hz,
+            duration_sec=args.duration_sec,
             render_camera_names=render_camera_names,
             max_frames=args.max_frames,
             overwrite=not args.no_overwrite,

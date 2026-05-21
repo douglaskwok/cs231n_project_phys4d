@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Export a masked/object-only DyNeRF dataset for fudan 4DGS."""
+"""Export masked/full DyNeRF datasets for fudan 4DGS."""
 
 from __future__ import annotations
 
@@ -62,10 +62,14 @@ def _read_mask(path: Path) -> np.ndarray:
     return mask > 0
 
 
-def _apply_mask(rgb: np.ndarray, mask: np.ndarray, background: str) -> np.ndarray:
+def _apply_mask(rgb: np.ndarray, mask: np.ndarray, background: str, mode: str) -> np.ndarray:
+    if mode == "full":
+        return rgb.copy()
+
     bg_value = 255 if background == "white" else 0
     out = np.full_like(rgb, bg_value)
-    out[mask] = rgb[mask]
+    keep = ~mask if mode == "background" else mask
+    out[keep] = rgb[keep]
     return out
 
 
@@ -75,6 +79,7 @@ def export_object_only_dynerf(
     masks_root: Path,
     output: Path,
     background: str,
+    mode: str = "object",
 ) -> dict[str, Any]:
     import imageio.v2 as imageio
 
@@ -123,7 +128,7 @@ def export_object_only_dynerf(
                 mask = _read_mask(mask_path)
                 if not mask.any():
                     empty_masks += 1
-                masked = _apply_mask(rgb, mask, background)
+                masked = _apply_mask(rgb, mask, background, mode)
 
                 stem = f"images/cam{cam_id:02d}_{frame_idx:05d}"
                 imageio.imwrite(output / f"{stem}.png", masked)
@@ -152,10 +157,11 @@ def export_object_only_dynerf(
         json.dump({**intr, "frames": test}, f, indent=2)
 
     meta = {
-        "format": "dynerf_object_only",
+        "format": f"dynerf_{mode}",
         "source_config": str(config),
         "rgb_root": str(rgb_root),
         "masks_root": str(masks_root),
+        "mode": mode,
         "background": background,
         "fps": fps,
         "train_cameras": list(cams_cfg["train_cameras"]),
@@ -216,16 +222,24 @@ def run_smoke_test() -> int:
         cfg_path = root / "config.json"
         cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
 
-        meta = export_object_only_dynerf(
-            config=cfg_path,
-            masks_root=masks.parent,
-            output=root / "out",
-            background="black",
-        )
-        print(json.dumps(meta, indent=2))
-        out_img = imageio.imread(root / "out" / "images" / "cam00_00000.png")
-        if out_img[0, 0].sum() != 0 or out_img[15, 15].sum() == 0:
-            raise RuntimeError("Smoke masked image failed")
+        expectations = {
+            "object": ((0, 0, 0), (30, 90, 220)),
+            "background": ((50, 50, 50), (0, 0, 0)),
+            "full": ((50, 50, 50), (30, 90, 220)),
+        }
+        for mode, (bg_expected, obj_expected) in expectations.items():
+            out_dir = root / f"out_{mode}"
+            meta = export_object_only_dynerf(
+                config=cfg_path,
+                masks_root=masks.parent,
+                output=out_dir,
+                background="black",
+                mode=mode,
+            )
+            print(json.dumps(meta, indent=2))
+            out_img = imageio.imread(out_dir / "images" / "cam00_00000.png")
+            if tuple(out_img[0, 0]) != bg_expected or tuple(out_img[15, 15]) != obj_expected:
+                raise RuntimeError(f"Smoke masked image failed for mode={mode}")
     return 0
 
 
@@ -235,6 +249,12 @@ def main() -> int:
     parser.add_argument("--masks-root", type=Path, default=REPO_ROOT / "outputs" / "sphere_bounce_m2" / "masks")
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "segmentation" / "02_object_only_4dgs" / "dynerf_ball_only")
     parser.add_argument("--background", choices=("black", "white"), default="black")
+    parser.add_argument(
+        "--mode",
+        choices=("object", "background", "full"),
+        default="object",
+        help="object keeps mask pixels, background removes mask pixels, full keeps original RGB.",
+    )
     parser.add_argument("--smoke-test", action="store_true")
     args = parser.parse_args()
 
@@ -246,9 +266,10 @@ def main() -> int:
         masks_root=args.masks_root.resolve(),
         output=args.output.resolve(),
         background=args.background,
+        mode=args.mode,
     )
     print(json.dumps(meta, indent=2))
-    print(f"Wrote object-only DyNeRF dataset: {args.output.resolve()}")
+    print(f"Wrote {args.mode} DyNeRF dataset: {args.output.resolve()}")
     return 0
 
 
