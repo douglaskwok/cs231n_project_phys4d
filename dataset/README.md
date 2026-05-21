@@ -16,6 +16,8 @@ dataset/outputs/ping_pong_12view_single_fast_room/scene_0000_e0p90_a0p0/
 It has 12 calibrated cameras, RGB frames, ball masks, object poses, camera
 metadata, and preview videos. The room version adds a floor, four walls, and
 colored anchor panels so 4DGS has background structure to reconstruct.
+The current PyBullet contact settings force restitution to be applied at the
+table contact, so the ball actually rebounds instead of settling onto the table.
 
 Generated outputs are intentionally gitignored.
 
@@ -494,6 +496,181 @@ phys_sim/bin/python dataset/export_ping_pong_12view.py \
 
 In legacy export mode, masks are RGB-derived blue-ball masks rather than
 PyBullet instance masks. Generated scenes use PyBullet instance masks directly.
+
+## Other Room Physics Scenarios
+
+Use this exporter for the additional 12-view room scenarios:
+
+```bash
+dataset/export_room_physics_12view.py
+```
+
+It uses the same 12-camera room rig as the ping-pong exporter: floor, walls,
+colored anchor panels, table, RGB frames, PyBullet instance masks, camera
+metadata, object poses, and preview videos. These scenarios are meant to test
+whether reconstruction methods can handle physics beyond one bouncing sphere.
+
+### Scenario Catalog
+
+`collision`
+
+Two rigid boxes slide toward each other on the table and collide. The red box is
+`object_a`; the blue box is `object_b`. The dynamic foreground mask `masks/` is
+the union of both boxes, while `masks_object_a/` and `masks_object_b/` let you
+train or evaluate each object separately. The default scene lasts 2.6 seconds:
+157 frames at 60 FPS with 480 Hz PyBullet simulation.
+
+This scenario is useful for testing multi-object motion, contact, and occlusion.
+It is also intentionally hard for plain object-only 4DGS: if trained on black
+background with only 1000 iterations, the reconstruction may keep the easier
+persistent object and drop the other one. Use the per-object masks or
+`masks_object_table/` if you want a more stable diagnostic.
+
+`stacking`
+
+Six colored rigid blocks are released sequentially and settle into a small stack.
+The blocks are named `block_00` through `block_05`, with corresponding
+per-object masks like `masks_block_00/`. The dynamic foreground mask `masks/`
+contains all active blocks. The default scene lasts 5.0 seconds: 301 frames at
+60 FPS with 480 Hz PyBullet simulation.
+
+This scenario tests repeated contacts, resting contact stability, partial
+occlusion, and whether a model can represent several objects that become
+spatially close over time.
+
+`deformable`
+
+A blue soft torus drops onto the table and deforms. The object is named
+`soft_torus`, with a per-object mask in `masks_soft_torus/`. The default scene
+lasts 2.6 seconds: 157 frames at 60 FPS with 480 Hz PyBullet simulation. The
+exporter records soft-mesh pose statistics in `object_poses.csv`, including mesh
+height span and approximate XY radius.
+
+This scenario tests non-rigid motion. It is the least like the rigid ping-pong
+case, so use it as a stress test rather than the first debugging target.
+
+### Supported Names
+
+Pass one scenario name, a comma-separated list, or `all`:
+
+```text
+collision    two rigid boxes collide on the table
+stacking     six blocks are released sequentially into a stack
+deformable   soft torus drops and deforms on the table
+all          generate all three
+```
+
+Generate one instance of all three in the room setting:
+
+```bash
+phys_sim/bin/python dataset/export_room_physics_12view.py \
+  --scenario all \
+  --output-dir dataset/outputs/room_physics_12view_base
+```
+
+Expected output:
+
+```text
+dataset/outputs/room_physics_12view_base/
+  dataset_manifest.json
+  scene_0000_collision_room/
+  scene_0001_stacking_room/
+  scene_0002_deformable_room/
+```
+
+Each scene follows the same general structure as the ping-pong room export:
+
+```text
+rgb/cam00/frame00000.png
+masks/cam00/frame00000.png                # all dynamic objects
+masks_table/cam00/frame00000.png          # table only
+masks_object_table/cam00/frame00000.png   # dynamic objects + table
+masks_<object_name>/cam00/frame00000.png  # per-object masks
+videos/rgb/cam00_front.mp4
+videos/masks/cam00_front.mp4
+videos/masks_table/cam00_front.mp4
+videos/masks_object_table/cam00_front.mp4
+cameras.json
+object_poses.csv
+metadata.json
+config.json
+```
+
+For a quick proof of concept:
+
+```bash
+phys_sim/bin/python dataset/export_room_physics_12view.py \
+  --scenario all \
+  --output-dir dataset/outputs/room_physics_12view_poc \
+  --max-frames 91 \
+  --video-camera-names front,top_oblique
+```
+
+This still writes PNG frames/masks for all 12 cameras, but only writes preview
+MP4s for `front` and `top_oblique`.
+
+View examples:
+
+```bash
+open dataset/outputs/room_physics_12view_base/scene_0000_collision_room/videos/rgb/cam00_front.mp4
+open dataset/outputs/room_physics_12view_base/scene_0001_stacking_room/videos/rgb/cam00_front.mp4
+open dataset/outputs/room_physics_12view_base/scene_0002_deformable_room/videos/rgb/cam00_front.mp4
+```
+
+Useful masks for 4DGS-style object exports:
+
+```text
+masks                 dynamic foreground only
+masks_table           table only
+masks_object_table    dynamic foreground + table
+masks_<object_name>   one named object only, when available
+```
+
+For example, export collision dynamic objects only:
+
+```bash
+SCENE=dataset/outputs/room_physics_12view_base/scene_0000_collision_room
+
+phys_sim/bin/python 4dgs/experiments/object_only/export_object_only_dynerf.py \
+  --config "$SCENE/config.json" \
+  --masks-root "$SCENE/masks" \
+  --output 4dgs/experiments/object_only/runs/collision_room_objects \
+  --mode object \
+  --background black
+```
+
+Export dynamic objects plus table:
+
+```bash
+phys_sim/bin/python 4dgs/experiments/object_only/export_object_only_dynerf.py \
+  --config "$SCENE/config.json" \
+  --masks-root "$SCENE/masks_object_table" \
+  --output 4dgs/experiments/object_only/runs/collision_room_objects_table \
+  --mode object \
+  --background black
+```
+
+Export only one collision object:
+
+```bash
+phys_sim/bin/python 4dgs/experiments/object_only/export_object_only_dynerf.py \
+  --config "$SCENE/config.json" \
+  --masks-root "$SCENE/masks_object_a" \
+  --output 4dgs/experiments/object_only/runs/collision_room_object_a \
+  --mode object \
+  --background black
+```
+
+For quick 4DGS runs, use the config matching the scene duration:
+
+```text
+room_physics_4dgs_quick_2p6s.yaml  collision and deformable
+room_physics_4dgs_quick_5p0s.yaml  stacking
+```
+
+The Modal 4DGS pipeline still overwrites `/data/4d_scene`,
+`/outputs/4dgs_sphere_bounce`, and `/outputs/4dgs_renders/latest`, so train and
+download one scenario at a time.
 
 ## Teammate Handoff
 

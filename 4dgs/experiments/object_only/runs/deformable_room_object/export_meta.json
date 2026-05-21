@@ -1,0 +1,46 @@
+{
+  "format": "dynerf_object",
+  "source_config": "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/dataset/outputs/room_physics_12view_base/scene_0002_deformable_room/config.json",
+  "rgb_root": "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/dataset/outputs/room_physics_12view_base/scene_0002_deformable_room/rgb",
+  "masks_root": "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/dataset/outputs/room_physics_12view_base/scene_0002_deformable_room/masks",
+  "mode": "object",
+  "background": "black",
+  "fps": 60.0,
+  "train_cameras": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "test_cameras": [
+    10,
+    11
+  ],
+  "train_frame_range": [
+    0,
+    156
+  ],
+  "test_frame_range": [
+    0,
+    156
+  ],
+  "num_train_views": 1570,
+  "num_test_views": 314,
+  "empty_train_masks": 1,
+  "empty_test_masks": 0,
+  "image_size": [
+    960,
+    544
+  ],
+  "fov_deg": 60.0,
+  "time_duration_suggested": [
+    0.0,
+    2.6
+  ]
+}

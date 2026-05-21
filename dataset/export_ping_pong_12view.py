@@ -55,6 +55,8 @@ BALL_LATERAL_FRICTION = 0.20
 BALL_ROLLING_FRICTION = 0.0005
 BALL_SPINNING_FRICTION = 0.0005
 TABLE_LATERAL_FRICTION = 0.35
+CONTACT_PROCESSING_THRESHOLD = 0.0
+RESTITUTION_VELOCITY_THRESHOLD = 0.0
 TARGET = [0.0, 0.0, TABLE_TOP_Z + 0.20]
 ROOM_HALF_X = 2.60
 ROOM_HALF_Y = 2.60
@@ -716,6 +718,7 @@ def _simulate_variation_scene(
         numSolverIterations=150,
         numSubSteps=2,
         deterministicOverlappingPairs=1,
+        restitutionVelocityThreshold=RESTITUTION_VELOCITY_THRESHOLD,
         physicsClientId=client,
     )
 
@@ -760,6 +763,7 @@ def _simulate_variation_scene(
         -1,
         restitution=restitution,
         lateralFriction=TABLE_LATERAL_FRICTION,
+        contactProcessingThreshold=CONTACT_PROCESSING_THRESHOLD,
         physicsClientId=client,
     )
 
@@ -786,6 +790,7 @@ def _simulate_variation_scene(
         lateralFriction=BALL_LATERAL_FRICTION,
         rollingFriction=BALL_ROLLING_FRICTION,
         spinningFriction=BALL_SPINNING_FRICTION,
+        contactProcessingThreshold=CONTACT_PROCESSING_THRESHOLD,
         physicsClientId=client,
     )
     p.resetBaseVelocity(
@@ -1010,6 +1015,8 @@ def _simulate_variation_scene(
             "num_frames": num_frames,
             "duration_s": (num_frames - 1) / video_fps if num_frames else 0.0,
             "gravity_m_s2": [0.0, 0.0, GRAVITY],
+            "contact_processing_threshold": CONTACT_PROCESSING_THRESHOLD,
+            "restitution_velocity_threshold": RESTITUTION_VELOCITY_THRESHOLD,
             "train_frames": train_frames,
             "test_frames": test_frames,
         },
@@ -1048,6 +1055,8 @@ def _simulate_variation_scene(
             "initial_direction": "+x",
             "ball_lateral_friction": BALL_LATERAL_FRICTION,
             "table_lateral_friction": TABLE_LATERAL_FRICTION,
+            "contact_processing_threshold": CONTACT_PROCESSING_THRESHOLD,
+            "restitution_velocity_threshold": RESTITUTION_VELOCITY_THRESHOLD,
             "drag_enabled": False,
         },
     }

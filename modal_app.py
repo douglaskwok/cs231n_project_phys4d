@@ -740,6 +740,7 @@ def main(
     perception_limit: int = 0,
     render_4d_checkpoint: str | None = None,
     train_4d_config: str = "sphere_bounce_4dgs.yaml",
+    render_4d_config: str = "sphere_bounce_4dgs.yaml",
     render_fps: float = 60.0,
     render_dry_run_max: int = 0,
     upload_4d_path: str = "outputs/sphere_bounce_m2/dynerf_sphere_bounce",
@@ -831,6 +832,7 @@ def main(
     if render_4d:
         print(
             render_4d_trajectory.remote(
+                config_name=render_4d_config,
                 checkpoint_name=render_4d_checkpoint,
                 fps=render_fps,
                 dry_run_max=render_dry_run_max,
@@ -844,6 +846,7 @@ def main(
     if render_4d_orbit:
         print(
             render_4d_orbit_job.remote(
+                config_name=render_4d_config,
                 checkpoint_name=render_4d_checkpoint,
                 fps=render_fps,
                 orbit_frames=orbit_frames,
@@ -859,6 +862,7 @@ def main(
     if eval_4d:
         print(
             eval_4dgs_metrics_remote.remote(
+                config_name=render_4d_config,
                 checkpoint_name=render_4d_checkpoint,
                 dry_run_max=eval_4d_dry_run_max,
             )
