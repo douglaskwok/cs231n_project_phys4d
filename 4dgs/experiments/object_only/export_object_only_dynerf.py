@@ -78,6 +78,24 @@ def _apply_mask(rgb: np.ndarray, mask: np.ndarray, background: str, mode: str) -
     return out
 
 
+def _mask_pixels(path: Path) -> int:
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing mask frame: {path}")
+    return int(_read_mask(path).sum())
+
+
+def _read_frame_list(path: Path) -> list[int]:
+    frames = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        frames.append(int(line))
+    if not frames:
+        raise ValueError(f"Frame list is empty: {path}")
+    return sorted(dict.fromkeys(frames))
+
+
 def export_object_only_dynerf(
     *,
     config: Path,
@@ -85,6 +103,13 @@ def export_object_only_dynerf(
     output: Path,
     background: str,
     mode: str = "object",
+    min_mask_pixels: int = 0,
+    min_visible_cameras: int = 1,
+    trim_empty_time_ends: bool = False,
+    drop_invisible_frames: bool = False,
+    drop_invisible_views: bool = False,
+    frame_list: Path | None = None,
+    all_train: bool = False,
 ) -> dict[str, Any]:
     import imageio.v2 as imageio
 
@@ -114,13 +139,47 @@ def export_object_only_dynerf(
     images_dir = output / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    def frame_entries(camera_ids: list[int], lo: int, hi: int) -> tuple[list[dict], int]:
+    def visible_camera_count(camera_ids: list[int], frame_idx: int) -> int:
+        tag = f"{frame_idx:05d}"
+        return sum(
+            _mask_pixels(masks_root / f"cam{cam_id:02d}" / f"frame{tag}.png")
+            > min_mask_pixels
+            for cam_id in camera_ids
+        )
+
+    def visible_frame_indices(camera_ids: list[int], lo: int, hi: int) -> list[int]:
+        visible = []
+        for frame_idx in range(lo, hi + 1):
+            if visible_camera_count(camera_ids, frame_idx) >= min_visible_cameras:
+                visible.append(frame_idx)
+        return visible
+
+    def effective_range(camera_ids: list[int], lo: int, hi: int) -> tuple[int, int]:
+        if not trim_empty_time_ends:
+            return lo, hi
+        visible = visible_frame_indices(camera_ids, lo, hi)
+        if not visible:
+            raise ValueError(
+                f"No visible timestamps in frame range {lo}..{hi} "
+                f"for min_mask_pixels={min_mask_pixels}"
+            )
+        return visible[0], visible[-1]
+
+    def frame_entries(
+        camera_ids: list[int],
+        frame_indices: list[int],
+    ) -> tuple[list[dict], dict[str, int]]:
         entries: list[dict] = []
-        empty_masks = 0
+        stats = {
+            "empty_masks": 0,
+            "below_threshold_masks": 0,
+            "dropped_invisible_views": 0,
+            "written_views": 0,
+        }
         for cam_id in camera_ids:
             rec = cam_by_index[cam_id]
             c2w = view_matrix_to_c2w(rec["view_matrix_row_major"])
-            for frame_idx in range(lo, hi + 1):
+            for frame_idx in frame_indices:
                 tag = f"{frame_idx:05d}"
                 rgb_path = rgb_root / f"cam{cam_id:02d}" / f"frame{tag}.png"
                 mask_path = masks_root / f"cam{cam_id:02d}" / f"frame{tag}.png"
@@ -131,8 +190,14 @@ def export_object_only_dynerf(
 
                 rgb = _read_rgb(rgb_path)
                 mask = _read_mask(mask_path)
-                if not mask.any():
-                    empty_masks += 1
+                mask_area = int(mask.sum())
+                if mask_area == 0:
+                    stats["empty_masks"] += 1
+                if mask_area <= min_mask_pixels:
+                    stats["below_threshold_masks"] += 1
+                    if drop_invisible_views and mode != "full":
+                        stats["dropped_invisible_views"] += 1
+                        continue
                 masked = _apply_mask(rgb, mask, background, mode)
 
                 stem = f"images/cam{cam_id:02d}_{frame_idx:05d}"
@@ -144,16 +209,65 @@ def export_object_only_dynerf(
                         "file_path": stem,
                         "transform_matrix": c2w.tolist(),
                         "time": float(frame_idx) / float(fps),
+                        "original_frame": int(frame_idx),
+                        "mask_pixels": mask_area,
                     }
                 )
-        return entries, empty_masks
+                stats["written_views"] += 1
+        return entries, stats
 
-    train, train_empty = frame_entries(
-        list(cams_cfg["train_cameras"]), int(train_frames[0]), int(train_frames[1])
-    )
-    test, test_empty = frame_entries(
-        list(cams_cfg["test_cameras"]), int(test_frames[0]), int(test_frames[1])
-    )
+    if all_train:
+        train_cameras = sorted(cam_by_index)
+        test_cameras: list[int] = []
+        train_lo = 0
+        train_hi = int(sim.get("num_frames", max(int(train_frames[1]), int(test_frames[1])) + 1)) - 1
+        test_lo = 0
+        test_hi = -1
+        fixed_frame_indices = _read_frame_list(frame_list) if frame_list is not None else None
+        if fixed_frame_indices is not None:
+            out_of_range = [idx for idx in fixed_frame_indices if idx < train_lo or idx > train_hi]
+            if out_of_range:
+                raise ValueError(
+                    f"--frame-list contains frames outside dataset range {train_lo}..{train_hi}: "
+                    f"{out_of_range[:10]}"
+                )
+            train_frame_indices = fixed_frame_indices
+        elif drop_invisible_frames and mode != "full":
+            train_frame_indices = visible_frame_indices(train_cameras, train_lo, train_hi)
+        else:
+            train_frame_indices = list(range(train_lo, train_hi + 1))
+        test_frame_indices: list[int] = []
+    else:
+        train_cameras = list(cams_cfg["train_cameras"])
+        test_cameras = list(cams_cfg["test_cameras"])
+        timeline_cameras = sorted(set(train_cameras + test_cameras))
+        train_lo, train_hi = effective_range(timeline_cameras, int(train_frames[0]), int(train_frames[1]))
+        test_lo, test_hi = effective_range(timeline_cameras, int(test_frames[0]), int(test_frames[1]))
+        fixed_frame_indices = _read_frame_list(frame_list) if frame_list is not None else None
+        if fixed_frame_indices is not None:
+            all_lo = min(int(train_frames[0]), int(test_frames[0]))
+            all_hi = max(int(train_frames[1]), int(test_frames[1]))
+            out_of_range = [idx for idx in fixed_frame_indices if idx < all_lo or idx > all_hi]
+            if out_of_range:
+                raise ValueError(
+                    f"--frame-list contains frames outside dataset range {all_lo}..{all_hi}: "
+                    f"{out_of_range[:10]}"
+                )
+            train_frame_indices = [
+                idx for idx in fixed_frame_indices if int(train_frames[0]) <= idx <= int(train_frames[1])
+            ]
+            test_frame_indices = [
+                idx for idx in fixed_frame_indices if int(test_frames[0]) <= idx <= int(test_frames[1])
+            ]
+        elif drop_invisible_frames and mode != "full":
+            train_frame_indices = visible_frame_indices(timeline_cameras, train_lo, train_hi)
+            test_frame_indices = visible_frame_indices(timeline_cameras, test_lo, test_hi)
+        else:
+            train_frame_indices = list(range(train_lo, train_hi + 1))
+            test_frame_indices = list(range(test_lo, test_hi + 1))
+
+    train, train_empty = frame_entries(train_cameras, train_frame_indices)
+    test, test_empty = frame_entries(test_cameras, test_frame_indices)
 
     intr = _intrinsics(fov_deg, width, height)
     with (output / "transforms_train.json").open("w", encoding="utf-8") as f:
@@ -169,17 +283,43 @@ def export_object_only_dynerf(
         "mode": mode,
         "background": background,
         "fps": fps,
-        "train_cameras": list(cams_cfg["train_cameras"]),
-        "test_cameras": list(cams_cfg["test_cameras"]),
+        "train_cameras": train_cameras,
+        "test_cameras": test_cameras,
         "train_frame_range": [int(train_frames[0]), int(train_frames[1])],
         "test_frame_range": [int(test_frames[0]), int(test_frames[1])],
+        "effective_train_frame_range": [train_lo, train_hi],
+        "effective_test_frame_range": [test_lo, test_hi],
         "num_train_views": len(train),
         "num_test_views": len(test),
-        "empty_train_masks": train_empty,
-        "empty_test_masks": test_empty,
+        "num_train_timestamps": len(train_frame_indices),
+        "num_test_timestamps": len(test_frame_indices),
+        "train_timestamps": train_frame_indices,
+        "test_timestamps": test_frame_indices,
+        "empty_train_masks": train_empty["empty_masks"],
+        "empty_test_masks": test_empty["empty_masks"],
+        "below_threshold_train_masks": train_empty["below_threshold_masks"],
+        "below_threshold_test_masks": test_empty["below_threshold_masks"],
+        "dropped_train_views": train_empty["dropped_invisible_views"],
+        "dropped_test_views": test_empty["dropped_invisible_views"],
+        "min_mask_pixels": min_mask_pixels,
+        "min_visible_cameras": min_visible_cameras,
+        "trim_empty_time_ends": trim_empty_time_ends,
+        "drop_invisible_frames": drop_invisible_frames,
+        "drop_invisible_views": drop_invisible_views,
+        "frame_list": str(frame_list) if frame_list is not None else None,
+        "all_train": all_train,
+        "preserves_original_timestamps": True,
+        "preserves_synchronized_multiview_frames": not drop_invisible_views,
         "image_size": [width, height],
         "fov_deg": fov_deg,
-        "time_duration_suggested": [0.0, int(train_frames[1]) / fps],
+        "time_duration_suggested": [
+            float(train_frame_indices[0]) / fps if train_frame_indices else 0.0,
+            float(train_frame_indices[-1]) / fps if train_frame_indices else 0.0,
+        ],
+        "effective_time_range_s": [
+            float(train_frame_indices[0]) / fps if train_frame_indices else 0.0,
+            float(train_frame_indices[-1]) / fps if train_frame_indices else 0.0,
+        ],
     }
     with (output / "export_meta.json").open("w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
@@ -259,6 +399,60 @@ def main() -> int:
     )
     parser.add_argument("--background", choices=("black", "white"), default="black")
     parser.add_argument(
+        "--min-mask-pixels",
+        type=int,
+        default=0,
+        help="Masks with <= this many foreground pixels are treated as invisible.",
+    )
+    parser.add_argument(
+        "--min-visible-cameras",
+        type=int,
+        default=1,
+        help=(
+            "For --drop-invisible-frames/--trim-empty-time-ends, keep a timestamp "
+            "only if at least this many cameras have mask area > --min-mask-pixels."
+        ),
+    )
+    parser.add_argument(
+        "--trim-empty-time-ends",
+        action="store_true",
+        help="Trim leading/trailing timestamps where the mask is invisible in every selected camera.",
+    )
+    parser.add_argument(
+        "--drop-invisible-frames",
+        action="store_true",
+        help=(
+            "Drop whole timestamps that fail --min-visible-cameras. This preserves "
+            "synchronized multi-view frame packets for 4DGS."
+        ),
+    )
+    parser.add_argument(
+        "--drop-invisible-views",
+        action="store_true",
+        help=(
+            "Drop individual camera-time entries whose mask area is <= --min-mask-pixels. "
+            "This breaks synchronized multi-view frame packets; use --drop-invisible-frames for 4DGS."
+        ),
+    )
+    parser.add_argument(
+        "--frame-list",
+        type=Path,
+        default=None,
+        help=(
+            "Optional text file containing one original frame index per line. "
+            "Use this to force multiple per-object exports onto the exact same timeline."
+        ),
+    )
+    parser.add_argument(
+        "--all-train",
+        action="store_true",
+        help=(
+            "Ignore config train/test split: put all selected cameras and all scene frames "
+            "into transforms_train.json, leaving transforms_test.json empty. Use this for "
+            "final reconstruction/viewing rather than held-out evaluation."
+        ),
+    )
+    parser.add_argument(
         "--mode",
         choices=("object", "background", "full"),
         default="object",
@@ -276,6 +470,13 @@ def main() -> int:
         output=args.output.resolve(),
         background=args.background,
         mode=args.mode,
+        min_mask_pixels=args.min_mask_pixels,
+        min_visible_cameras=args.min_visible_cameras,
+        trim_empty_time_ends=args.trim_empty_time_ends,
+        drop_invisible_frames=args.drop_invisible_frames,
+        drop_invisible_views=args.drop_invisible_views,
+        frame_list=args.frame_list.resolve() if args.frame_list is not None else None,
+        all_train=args.all_train,
     )
     print(json.dumps(meta, indent=2))
     print(f"Wrote {args.mode} DyNeRF dataset: {args.output.resolve()}")

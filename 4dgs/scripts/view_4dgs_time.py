@@ -62,11 +62,20 @@ def cmd_build(args: argparse.Namespace) -> int:
         render_prefix = "renders/"
         manifest["render_dir"] = str(dest)
     else:
+        # The HTTP server roots at the viewer folder, so browser paths cannot
+        # reliably point outside it. Use an internal link instead of "../".
+        dest = out_dir / "renders"
+        if dest.exists() or dest.is_symlink():
+            if dest.is_symlink() or dest.is_file():
+                dest.unlink()
+            else:
+                shutil.rmtree(dest)
         try:
-            rel = Path(os.path.relpath(render_dir, out_dir))
-            render_prefix = f"{rel.as_posix()}/" if rel != Path(".") else ""
-        except ValueError:
-            render_prefix = ""
+            dest.symlink_to(render_dir, target_is_directory=True)
+        except OSError:
+            shutil.copytree(render_dir, dest)
+        render_prefix = "renders/"
+        manifest["render_dir"] = str(dest)
 
     gt_prefix = ""
     if dataset and manifest.get("gt_frames"):

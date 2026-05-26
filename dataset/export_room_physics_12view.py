@@ -59,6 +59,11 @@ SCENARIO_DEFAULTS = {
     "deformable": {"duration_sec": 2.6, "sim_hz": 480.0},
 }
 
+STACKING_NUM_BLOCKS = 3
+STACKING_BLOCK_SIZE_M = [0.120, 0.120, 0.070]
+STACKING_BLOCK_MASS_KG = 0.180
+STACKING_RELEASE_INTERVAL_S = 0.80
+
 
 @dataclass
 class BodyInfo:
@@ -292,32 +297,35 @@ def _add_collision_object(
 
 def _setup_collision_scene(p, client: int) -> tuple[int, list[BodyInfo], list[str], dict]:
     table_id = _create_table(p, client, restitution=0.10, lateral_friction=0.02)
-    half = [0.050, 0.050, 0.025]
+    half = [0.090, 0.090, 0.040]
     objects = [
         _add_collision_object(
             p,
             client,
             name="object_a",
-            mass_kg=0.090,
+            mass_kg=0.220,
             half_extents=half,
-            position=[-0.36, 0.0, TABLE_TOP_Z + half[2]],
-            velocity=[1.05, 0.0, 0.0],
+            position=[-0.38, 0.0, TABLE_TOP_Z + half[2]],
+            velocity=[0.95, 0.0, 0.0],
             rgba_color=[0.90, 0.20, 0.16, 1.0],
         ),
         _add_collision_object(
             p,
             client,
             name="object_b",
-            mass_kg=0.060,
+            mass_kg=0.160,
             half_extents=half,
-            position=[0.36, 0.0, TABLE_TOP_Z + half[2]],
-            velocity=[-0.85, 0.0, 0.0],
+            position=[0.38, 0.0, TABLE_TOP_Z + half[2]],
+            velocity=[-0.75, 0.0, 0.0],
             rgba_color=[0.12, 0.50, 0.92, 1.0],
         ),
     ]
     meta = {
         "scenario": "collision",
         "object_half_extents_m": half,
+        "object_full_size_m": [2.0 * v for v in half],
+        "object_a_mass_kg": 0.220,
+        "object_b_mass_kg": 0.160,
         "object_restitution": 0.80,
         "object_lateral_friction": 0.02,
     }
@@ -328,30 +336,23 @@ def _stack_block_pose(index: int) -> tuple[list[float], list[float]]:
     p = _ensure_pybullet()
     offsets = [
         [0.000, 0.000],
-        [0.010, -0.004],
-        [-0.006, 0.008],
-        [0.012, 0.006],
-        [-0.010, -0.008],
-        [0.004, 0.012],
+        [0.014, -0.008],
+        [-0.012, 0.010],
     ]
-    yaws = [0.0, 0.08, -0.06, 0.12, -0.10, 0.05]
+    yaws = [0.0, 0.10, -0.08]
     x, y = offsets[index]
     # Drop blocks from slightly above the existing stack. The release interval
     # produces contact events without artificial constraints.
-    z = TABLE_TOP_Z + 0.34 + index * 0.015
+    z = TABLE_TOP_Z + 0.42 + index * 0.05
     return [x, y, z], p.getQuaternionFromEuler([0.0, 0.0, yaws[index]])
 
 
 def _create_stack_block(p, client: int, index: int) -> BodyInfo:
-    block_size = [0.070, 0.070, 0.045]
-    half = [v / 2.0 for v in block_size]
+    half = [v / 2.0 for v in STACKING_BLOCK_SIZE_M]
     colors = [
         [0.88, 0.15, 0.12, 1.0],
         [0.10, 0.55, 0.85, 1.0],
         [0.12, 0.70, 0.25, 1.0],
-        [0.95, 0.70, 0.10, 1.0],
-        [0.48, 0.22, 0.75, 1.0],
-        [0.90, 0.38, 0.16, 1.0],
     ]
     pos, orn = _stack_block_pose(index)
     col = p.createCollisionShape(p.GEOM_BOX, halfExtents=half, physicsClientId=client)
@@ -362,7 +363,7 @@ def _create_stack_block(p, client: int, index: int) -> BodyInfo:
         physicsClientId=client,
     )
     body = p.createMultiBody(
-        baseMass=0.060,
+        baseMass=STACKING_BLOCK_MASS_KG,
         baseCollisionShapeIndex=col,
         baseVisualShapeIndex=vis,
         basePosition=pos,
@@ -382,20 +383,20 @@ def _create_stack_block(p, client: int, index: int) -> BodyInfo:
     return BodyInfo(
         name=f"block_{index:02d}",
         body_id=body,
-        mass_kg=0.060,
+        mass_kg=STACKING_BLOCK_MASS_KG,
         kind="rigid_box",
     )
 
 
 def _setup_stacking_scene(p, client: int) -> tuple[int, list[BodyInfo], list[str], dict]:
     table_id = _create_table(p, client, restitution=0.08, lateral_friction=0.82)
-    expected = [f"block_{idx:02d}" for idx in range(6)]
+    expected = [f"block_{idx:02d}" for idx in range(STACKING_NUM_BLOCKS)]
     meta = {
         "scenario": "stacking",
-        "num_blocks": 6,
-        "block_size_m": [0.070, 0.070, 0.045],
-        "block_mass_kg": 0.060,
-        "release_interval_s": 0.70,
+        "num_blocks": STACKING_NUM_BLOCKS,
+        "block_size_m": STACKING_BLOCK_SIZE_M,
+        "block_mass_kg": STACKING_BLOCK_MASS_KG,
+        "release_interval_s": STACKING_RELEASE_INTERVAL_S,
         "block_lateral_friction": 0.85,
         "block_restitution": 0.05,
     }
@@ -658,7 +659,7 @@ def simulate_scenario(
     empty_masks = {"objects": 0, "table": 0, "object_table": 0}
     internal_step = 0
     next_stack_release_step = 0
-    release_interval_steps = int(round(0.70 * sim_hz))
+    release_interval_steps = int(round(STACKING_RELEASE_INTERVAL_S * sim_hz))
 
     def maybe_release_stack() -> None:
         nonlocal next_stack_release_step

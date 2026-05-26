@@ -21,6 +21,70 @@ table contact, so the ball actually rebounds instead of settling onto the table.
 
 Generated outputs are intentionally gitignored.
 
+## Final Dataset
+
+The current final PyBullet dataset lives at:
+
+```text
+dataset/outputs/phys4d_final/
+```
+
+Generate or refresh it with:
+
+```bash
+phys_sim/bin/python dataset/generate_phys4d_final.py --video-fps 60
+```
+
+The ball-drop split is a compact 3x3 grid centered on the demo-like bounce:
+
+```text
+restitution:    0.70, 0.78, 0.86
+ball_angle_deg: -8.0, 0.0, 8.0
+fps:            60
+sim_hz:         480
+```
+
+The angle is implemented as an approximate first-impact trajectory angle from
+vertical. The exporter computes the required horizontal velocity from the drop
+height while leaving gravity to determine the vertical speed.
+
+### First 4DGS Timing Run
+
+Use this wrapper to train one final scene, download the Gaussian artifacts, and
+record wall-clock timing:
+
+```bash
+bash 4dgs/scripts/train_one_final_scene_4dgs.sh \
+  dataset/outputs/phys4d_final/ball_drop_3x3_60fps/scene_0004_e0p78_a0p0 \
+  ball_drop_e0p78_a0p0_object
+```
+
+It writes:
+
+```text
+4dgs/experiments/object_only/runs/ball_drop_e0p78_a0p0_object/
+latest_ball_drop_e0p78_a0p0_object_4dgs/
+latest_ball_drop_e0p78_a0p0_object_4dgs/timing.json
+```
+
+For a quick smoke test before the quality run, add `--quick`.
+
+For per-object scenes, change `--mask-subdir`. Examples:
+
+```bash
+# Collision object A only
+bash 4dgs/scripts/train_one_final_scene_4dgs.sh \
+  dataset/outputs/phys4d_final/collision_base_60fps/scene_0000_collision_room \
+  collision_object_a \
+  --mask-subdir masks_object_a
+
+# First stacking block only
+bash 4dgs/scripts/train_one_final_scene_4dgs.sh \
+  dataset/outputs/phys4d_final/stacking_base_60fps/scene_0000_stacking_room \
+  stacking_block_00 \
+  --mask-subdir masks_block_00
+```
+
 ## Quick Start
 
 Generate the room dataset used for the current 4DGS checks:
@@ -45,11 +109,9 @@ dataset/outputs/ping_pong_12view_single_fast_room/
     rgb/cam00/frame00000.png
     masks/cam00/frame00000.png              # ball only
     masks_table/cam00/frame00000.png        # table only
-    masks_ball_table/cam00/frame00000.png   # ball + table
     videos/rgb/cam00_front.mp4
     videos/masks/cam00_front.mp4
     videos/masks_table/cam00_front.mp4
-    videos/masks_ball_table/cam00_front.mp4
     cameras.json
     object_poses.csv
     physics_params.json
@@ -62,7 +124,7 @@ View a generated RGB or mask video:
 ```bash
 open dataset/outputs/ping_pong_12view_single_fast_room/scene_0000_e0p90_a0p0/videos/rgb/cam00_front.mp4
 open dataset/outputs/ping_pong_12view_single_fast_room/scene_0000_e0p90_a0p0/videos/masks/cam00_front.mp4
-open dataset/outputs/ping_pong_12view_single_fast_room/scene_0000_e0p90_a0p0/videos/masks_ball_table/cam00_front.mp4
+open dataset/outputs/ping_pong_12view_single_fast_room/scene_0000_e0p90_a0p0/videos/masks_table/cam00_front.mp4
 ```
 
 ## Exporter Modes
@@ -187,24 +249,13 @@ phys_sim/bin/python 4dgs/experiments/object_only/export_object_only_dynerf.py \
   --background black
 ```
 
-Ball+table foreground video, with the room/background blacked out:
+Room background with ball removed:
 
 ```bash
 phys_sim/bin/python 4dgs/experiments/object_only/export_object_only_dynerf.py \
   --config "$SCENE/config.json" \
-  --masks-root "$SCENE/masks_ball_table" \
-  --output 4dgs/experiments/object_only/runs/ping_pong_room_ball_table_foreground \
-  --mode object \
-  --background black
-```
-
-Room background with ball+table removed:
-
-```bash
-phys_sim/bin/python 4dgs/experiments/object_only/export_object_only_dynerf.py \
-  --config "$SCENE/config.json" \
-  --masks-root "$SCENE/masks_ball_table" \
-  --output 4dgs/experiments/object_only/runs/ping_pong_room_without_ball_table \
+  --masks-root "$SCENE/masks" \
+  --output 4dgs/experiments/object_only/runs/ping_pong_room_without_ball \
   --mode background \
   --background black
 ```
@@ -520,6 +571,10 @@ the union of both boxes, while `masks_object_a/` and `masks_object_b/` let you
 train or evaluate each object separately. The default scene lasts 2.6 seconds:
 157 frames at 60 FPS with 480 Hz PyBullet simulation.
 
+The collision boxes are intentionally enlarged for reconstruction experiments:
+the default full size is `0.18 m x 0.18 m x 0.08 m`. Earlier small boxes were
+easy to segment but occupied too few pixels for stable object-only 4DGS.
+
 This scenario is useful for testing multi-object motion, contact, and occlusion.
 It is also intentionally hard for plain object-only 4DGS: if trained on black
 background with only 1000 iterations, the reconstruction may keep the easier
@@ -528,11 +583,16 @@ persistent object and drop the other one. Use the per-object masks or
 
 `stacking`
 
-Six colored rigid blocks are released sequentially and settle into a small stack.
-The blocks are named `block_00` through `block_05`, with corresponding
+Three enlarged colored rigid blocks are released sequentially and settle into a
+small stack. The blocks are named `block_00` through `block_02`, with corresponding
 per-object masks like `masks_block_00/`. The dynamic foreground mask `masks/`
 contains all active blocks. The default scene lasts 5.0 seconds: 301 frames at
 60 FPS with 480 Hz PyBullet simulation.
+
+The stacking blocks are intentionally larger than the first pass: the default
+full size is `0.12 m x 0.12 m x 0.07 m`. Three blocks is the first target because
+it gives contact, occlusion, and a stable stack without making object-only 4DGS
+fight six tiny moving masks at once.
 
 This scenario tests repeated contacts, resting contact stability, partial
 occlusion, and whether a model can represent several objects that become

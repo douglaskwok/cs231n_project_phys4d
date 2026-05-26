@@ -1,0 +1,66 @@
+{
+  "format": "dynerf_object",
+  "source_config": "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/dataset/outputs/room_physics_12view_base/scene_0000_collision_room/config.json",
+  "rgb_root": "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/dataset/outputs/room_physics_12view_base/scene_0000_collision_room/rgb",
+  "masks_root": "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/dataset/outputs/room_physics_12view_base/scene_0000_collision_room/masks_object_b",
+  "mode": "object",
+  "background": "black",
+  "fps": 60.0,
+  "train_cameras": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "test_cameras": [
+    10,
+    11
+  ],
+  "train_frame_range": [
+    0,
+    156
+  ],
+  "test_frame_range": [
+    0,
+    156
+  ],
+  "effective_train_frame_range": [
+    0,
+    156
+  ],
+  "effective_test_frame_range": [
+    0,
+    156
+  ],
+  "num_train_views": 948,
+  "num_test_views": 170,
+  "empty_train_masks": 613,
+  "empty_test_masks": 137,
+  "below_threshold_train_masks": 622,
+  "below_threshold_test_masks": 144,
+  "dropped_train_views": 622,
+  "dropped_test_views": 144,
+  "min_mask_pixels": 50,
+  "trim_empty_time_ends": true,
+  "drop_invisible_views": true,
+  "preserves_original_timestamps": true,
+  "image_size": [
+    960,
+    544
+  ],
+  "fov_deg": 60.0,
+  "time_duration_suggested": [
+    0.0,
+    2.6
+  ],
+  "effective_time_range_s": [
+    0.0,
+    2.6
+  ]
+}

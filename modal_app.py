@@ -43,6 +43,40 @@ app = modal.App("cs231n-phys4d")
 data_volume = modal.Volume.from_name("phys4d-gs-data", create_if_missing=True)
 output_volume = modal.Volume.from_name("phys4d-gs-output", create_if_missing=True)
 
+
+def _ignore_4dgs_mount(path: Path) -> bool:
+    parts = path.parts
+    return (
+        "__pycache__" in parts
+        or path.name in {".DS_Store"}
+        or parts[:3] == ("experiments", "object_only", "runs")
+    )
+
+
+def _ignore_repo_mount(path: Path) -> bool:
+    parts = path.parts
+    if not parts:
+        return False
+    top = parts[0]
+    return (
+        top in {
+            ".git",
+            ".venv",
+            "phys_sim",
+            "outputs",
+            "dataset_outputs",
+        }
+        or "__pycache__" in parts
+        or path.name in {".DS_Store"}
+        or path.suffix == ".pyc"
+        or parts[:2] == ("dataset", "outputs")
+        or parts[:4] == ("4dgs", "experiments", "object_only", "runs")
+        or top.startswith("latest_")
+        or top.endswith("_4dgs")
+        or top.endswith("_render")
+        or top.endswith("_frames")
+    )
+
 _torch_image = modal.Image.from_registry(
     "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime",
 ).pip_install("numpy<2", "imageio")
@@ -85,7 +119,7 @@ _4dgs_image = (
     .add_local_dir(
         str(REPO_ROOT / "4dgs"),
         remote_path="/repo/4dgs",
-        ignore=["__pycache__", ".DS_Store", "**/runs/**"],
+        ignore=_ignore_4dgs_mount,
     )
 )
 
@@ -107,7 +141,7 @@ _repo_ignore = [
 _test_image = _torch_image.add_local_dir(
     str(REPO_ROOT),
     remote_path="/repo",
-    ignore=_repo_ignore,
+    ignore=_ignore_repo_mount,
 )
 
 # Visual dynamics: perception cache, transformer train, rollout + 3DGS warp.
@@ -300,14 +334,17 @@ def _train_4dgs_on_paths(
     volumes={"/data": data_volume, "/outputs": output_volume},
     timeout=60 * 60 * 6,
 )
-def train_4dgs(config_name: str = "sphere_bounce_4dgs.yaml") -> str:
+def train_4dgs(
+    config_name: str = "sphere_bounce_4dgs.yaml",
+    model_rel: str = "4dgs_sphere_bounce",
+) -> str:
     """Train fudan 4DGS on /data/4d_scene (DyNeRF export from PyBullet)."""
     scene = Path("/data/4d_scene")
     if not (scene / "transforms_train.json").is_file():
         raise FileNotFoundError(
             "No 4D scene at /data/4d_scene. Run: modal run modal_app.py --upload-4d"
         )
-    return _train_4dgs_on_paths(scene, Path("/outputs/4dgs_sphere_bounce"), config_name)
+    return _train_4dgs_on_paths(scene, Path("/outputs") / model_rel, config_name)
 
 
 @app.function(
@@ -318,6 +355,7 @@ def train_4dgs(config_name: str = "sphere_bounce_4dgs.yaml") -> str:
 )
 def export_4dgs_ply(
     checkpoint_name: str = "chkpnt_best.pth",
+    model_rel: str = "4dgs_sphere_bounce",
 ) -> str:
     """Write SuperSplat PLY from a trained 4DGS checkpoint on the output volume."""
     import sys
@@ -325,7 +363,7 @@ def export_4dgs_ply(
     sys.path.insert(0, FOURDGS_SCRIPTS)
     from export_4dgs_ply import export_checkpoint_to_ply
 
-    model_dir = Path("/outputs/4dgs_sphere_bounce")
+    model_dir = Path("/outputs") / model_rel
     ckpt = model_dir / checkpoint_name
     if not ckpt.is_file():
         available = [p.name for p in sorted(model_dir.glob("chkpnt*.pth"))]
@@ -340,6 +378,34 @@ def export_4dgs_ply(
         f"exported {meta['num_points']} points @ iter {meta['iteration']} -> "
         f"phys4d-gs-output:{out}"
     )
+
+
+@app.function(
+    image=_4dgs_image,
+    gpu=None,
+    volumes={"/outputs": output_volume},
+    timeout=30 * 60,
+)
+def compose_4dgs_checkpoints_remote(
+    model_rels: str,
+    output_model_rel: str,
+    checkpoint_name: str = "chkpnt15000.pth",
+    output_checkpoint_name: str = "chkpnt_composed.pth",
+) -> str:
+    """Compose multiple named output-volume 4DGS models into one checkpoint."""
+    import sys
+
+    sys.path.insert(0, FOURDGS_SCRIPTS)
+    from compose_4dgs_checkpoints import compose_checkpoints
+
+    rels = [rel.strip().strip("/") for rel in model_rels.split(",") if rel.strip()]
+    if len(rels) < 2:
+        raise ValueError("--compose-4d-models must contain at least two comma-separated model paths")
+    checkpoints = [Path("/outputs") / rel / checkpoint_name for rel in rels]
+    output = Path("/outputs") / output_model_rel.strip("/") / output_checkpoint_name
+    meta = compose_checkpoints(checkpoints, output)
+    output_volume.commit()
+    return json.dumps(meta, indent=2)
 
 
 def _pick_4d_checkpoint(model_dir: Path, checkpoint_name: str | None) -> Path:
@@ -378,6 +444,7 @@ def render_4d_trajectory(
     checkpoint_name: str | None = None,
     fps: float = 60.0,
     dry_run_max: int = 0,
+    model_rel: str = "4dgs_sphere_bounce",
 ) -> str:
     """Rasterize 4DGS at each frame's timestamp; sort by time then camera (motion + orbit)."""
     import shutil
@@ -390,7 +457,7 @@ def render_4d_trajectory(
             "No 4D scene at /data/4d_scene. Run: modal run modal_app.py --upload-4d"
         )
 
-    model_dir = Path("/outputs/4dgs_sphere_bounce")
+    model_dir = Path("/outputs") / model_rel
     ckpt = _pick_4d_checkpoint(model_dir, checkpoint_name)
 
     cfg_src = Path(FOURDGS_CONFIGS) / config_name
@@ -436,6 +503,87 @@ def render_4d_trajectory(
     return (
         f"4dgs render -> phys4d-gs-output:{out_base} "
         f"(checkpoint {ckpt.name}, trajectory.mp4)"
+    )
+
+
+@app.function(
+    image=_4dgs_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 90,
+)
+def render_4d_multi_trajectory(
+    config_name: str = "room_physics_4dgs_5p0s.yaml",
+    model_rels: str = "",
+    checkpoint_name: str = "chkpnt15000.pth",
+    frame_starts: str = "",
+    frame_ends: str = "",
+    dry_run_max: int = 0,
+    mode: str = "max",
+) -> str:
+    """Render multiple separately trained 4DGS models into one PNG sequence."""
+    import shutil
+
+    from omegaconf import OmegaConf
+
+    scene = Path("/data/4d_scene")
+    if not (scene / "transforms_train.json").is_file():
+        raise FileNotFoundError("No reference 4D scene at /data/4d_scene. Upload one first.")
+
+    rels = [rel.strip().strip("/") for rel in model_rels.split(",") if rel.strip()]
+    if len(rels) < 2:
+        raise ValueError("--render-4d-multi-models must contain at least two comma-separated model paths")
+    ckpts = [Path("/outputs") / rel / checkpoint_name for rel in rels]
+    missing = [str(path) for path in ckpts if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"Missing checkpoints: {missing}")
+
+    cfg_src = Path(FOURDGS_CONFIGS) / config_name
+    if not cfg_src.is_file():
+        raise FileNotFoundError(f"Missing config: {cfg_src}")
+    cfg = OmegaConf.load(cfg_src)
+    cfg.ModelParams.source_path = str(scene)
+    cfg_path = Path("/tmp/render_4dgs_multi.yaml")
+    OmegaConf.save(cfg, cfg_path)
+
+    out_base = Path("/outputs/4dgs_renders/multi_latest")
+    out_base.mkdir(parents=True, exist_ok=True)
+    for child in out_base.iterdir():
+        if child.is_file():
+            child.unlink()
+        elif child.is_dir():
+            shutil.rmtree(child)
+
+    subprocess.run(
+        [
+            sys.executable,
+            f"{FOURDGS_SCRIPTS}/render_4dgs_multi_checkpoint.py",
+            "--fourd-root",
+            "/opt/4dgs",
+            "--config",
+            str(cfg_path),
+            "--dataset",
+            str(scene),
+            "--out-dir",
+            str(out_base),
+            "--checkpoints",
+            *[str(path) for path in ckpts],
+            "--frame-starts",
+            frame_starts,
+            "--frame-ends",
+            frame_ends,
+            "--dry-run-max",
+            str(dry_run_max),
+            "--mode",
+            mode,
+        ],
+        check=True,
+    )
+
+    output_volume.commit()
+    return (
+        f"multi-4dgs render -> phys4d-gs-output:{out_base}\n"
+        f"models: {rels}\ncheckpoint: {checkpoint_name}"
     )
 
 
@@ -723,8 +871,10 @@ def main(
     train: bool = False,
     upload_4d: bool = False,
     train_4d: bool = False,
+    compose_4d: bool = False,
     export_4d_ply: bool = False,
     render_4d: bool = False,
+    render_4d_multi: bool = False,
     render_4d_orbit: bool = False,
     eval_4d: bool = False,
     upload_batch: bool = False,
@@ -740,7 +890,17 @@ def main(
     perception_limit: int = 0,
     render_4d_checkpoint: str | None = None,
     train_4d_config: str = "sphere_bounce_4dgs.yaml",
+    train_4d_model: str = "4dgs_sphere_bounce",
     render_4d_config: str = "sphere_bounce_4dgs.yaml",
+    render_4d_model: str = "4dgs_sphere_bounce",
+    render_4d_multi_models: str = "",
+    render_4d_multi_frame_starts: str = "",
+    render_4d_multi_frame_ends: str = "",
+    render_4d_multi_mode: str = "max",
+    compose_4d_models: str = "",
+    compose_4d_output_model: str = "4dgs_composed",
+    compose_4d_checkpoint: str = "chkpnt15000.pth",
+    compose_4d_output_checkpoint: str = "chkpnt_composed.pth",
     render_fps: float = 60.0,
     render_dry_run_max: int = 0,
     upload_4d_path: str = "outputs/sphere_bounce_m2/dynerf_sphere_bounce",
@@ -812,21 +972,41 @@ def main(
         print(f"Uploaded {out_scene} -> volume phys4d-gs-data:/4d_scene")
         return
     if train_4d:
-        print(train_4dgs.remote(config_name=train_4d_config))
+        print(train_4dgs.remote(config_name=train_4d_config, model_rel=train_4d_model))
         print(
-            "Raster (calibrated): modal run modal_app.py --render-4d\n"
+            f"Model: phys4d-gs-output:/{train_4d_model}\n"
+            f"Raster (calibrated): modal run modal_app.py --render-4d --render-4d-model {train_4d_model}\n"
             "Raster (orbit):      modal run modal_app.py --render-4d-orbit\n"
             "Metrics (PSNR/GT):   modal run modal_app.py --eval-4d\n"
             "Export PLY: modal run modal_app.py --export-4d-ply\n"
-            "Download: modal volume get phys4d-gs-output 4dgs_sphere_bounce . --force\n"
-            "  View: 4dgs_sphere_bounce/point_cloud/exported/point_cloud.ply"
+            f"Download: modal volume get phys4d-gs-output {train_4d_model} . --force"
+        )
+        return
+    if compose_4d:
+        print(
+            compose_4dgs_checkpoints_remote.remote(
+                model_rels=compose_4d_models,
+                output_model_rel=compose_4d_output_model,
+                checkpoint_name=compose_4d_checkpoint,
+                output_checkpoint_name=compose_4d_output_checkpoint,
+            )
+        )
+        print(
+            "Render composed model:\n"
+            f"  modal run modal_app.py --render-4d --render-4d-model {compose_4d_output_model} "
+            f"--render-4d-checkpoint {compose_4d_output_checkpoint}"
         )
         return
     if export_4d_ply:
-        print(export_4dgs_ply.remote())
+        print(
+            export_4dgs_ply.remote(
+                checkpoint_name=render_4d_checkpoint,
+                model_rel=render_4d_model,
+            )
+        )
         print(
             "Download: modal volume get phys4d-gs-output "
-            "4dgs_sphere_bounce/point_cloud/exported . --force"
+            f"{render_4d_model}/point_cloud/exported . --force"
         )
         return
     if render_4d:
@@ -836,11 +1016,29 @@ def main(
                 checkpoint_name=render_4d_checkpoint,
                 fps=render_fps,
                 dry_run_max=render_dry_run_max,
+                model_rel=render_4d_model,
             )
         )
         print(
             "Download video: modal volume get phys4d-gs-output 4dgs_renders/latest . --force\n"
             "  Play trajectory.mp4; PNGs sorted by simulation time then camera."
+        )
+        return
+    if render_4d_multi:
+        print(
+            render_4d_multi_trajectory.remote(
+                config_name=render_4d_config,
+                model_rels=render_4d_multi_models,
+                checkpoint_name=render_4d_checkpoint or "chkpnt15000.pth",
+                frame_starts=render_4d_multi_frame_starts,
+                frame_ends=render_4d_multi_frame_ends,
+                dry_run_max=render_dry_run_max,
+                mode=render_4d_multi_mode,
+            )
+        )
+        print(
+            "Download Gaussian-rendered PNGs: modal volume get phys4d-gs-output "
+            "4dgs_renders/multi_latest latest_multi_4dgs_render --force"
         )
         return
     if render_4d_orbit:

@@ -819,20 +819,16 @@ def _simulate_variation_scene(
     rgb_root = scene_dir / "rgb"
     masks_root = scene_dir / "masks"
     table_masks_root = scene_dir / "masks_table"
-    ball_table_masks_root = scene_dir / "masks_ball_table"
     videos_rgb_root = scene_dir / "videos" / "rgb"
     videos_masks_root = scene_dir / "videos" / "masks"
     videos_table_masks_root = scene_dir / "videos" / "masks_table"
-    videos_ball_table_masks_root = scene_dir / "videos" / "masks_ball_table"
     rgb_root.mkdir(parents=True, exist_ok=True)
     masks_root.mkdir(parents=True, exist_ok=True)
     table_masks_root.mkdir(parents=True, exist_ok=True)
-    ball_table_masks_root.mkdir(parents=True, exist_ok=True)
     if write_videos:
         videos_rgb_root.mkdir(parents=True, exist_ok=True)
         videos_masks_root.mkdir(parents=True, exist_ok=True)
         videos_table_masks_root.mkdir(parents=True, exist_ok=True)
-        videos_ball_table_masks_root.mkdir(parents=True, exist_ok=True)
     with (scene_dir / "cameras.json").open("w", encoding="utf-8") as f:
         json.dump({"cameras": camera_records}, f, indent=2)
 
@@ -844,8 +840,7 @@ def _simulate_variation_scene(
     pose_rows: list[dict] = []
     empty_masks = 0
     empty_table_masks = 0
-    empty_ball_table_masks = 0
-    video_writers: dict[int, tuple[object | None, object | None, object | None, object | None]] = {}
+    video_writers: dict[int, tuple[object | None, object | None, object | None]] = {}
     try:
         if write_videos:
             for cam in camera_records:
@@ -856,28 +851,19 @@ def _simulate_variation_scene(
                 rgb_video_path = videos_rgb_root / f"cam{cam_idx:02d}_{name}.mp4"
                 mask_video_path = videos_masks_root / f"cam{cam_idx:02d}_{name}.mp4"
                 table_mask_video_path = videos_table_masks_root / f"cam{cam_idx:02d}_{name}.mp4"
-                ball_table_mask_video_path = videos_ball_table_masks_root / f"cam{cam_idx:02d}_{name}.mp4"
                 rgb_writer = None
                 mask_writer = None
                 table_mask_writer = None
-                ball_table_mask_writer = None
                 if overwrite or not rgb_video_path.exists():
                     rgb_writer = _open_mp4_writer(imageio, rgb_video_path, fps=video_fps)
                 if overwrite or not mask_video_path.exists():
                     mask_writer = _open_mp4_writer(imageio, mask_video_path, fps=video_fps)
                 if overwrite or not table_mask_video_path.exists():
                     table_mask_writer = _open_mp4_writer(imageio, table_mask_video_path, fps=video_fps)
-                if overwrite or not ball_table_mask_video_path.exists():
-                    ball_table_mask_writer = _open_mp4_writer(
-                        imageio,
-                        ball_table_mask_video_path,
-                        fps=video_fps,
-                    )
                 video_writers[cam_idx] = (
                     rgb_writer,
                     mask_writer,
                     table_mask_writer,
-                    ball_table_mask_writer,
                 )
 
         for frame_idx in range(num_frames):
@@ -916,11 +902,9 @@ def _simulate_variation_scene(
                 rgb_dir = rgb_root / f"cam{cam_idx:02d}"
                 mask_dir = masks_root / f"cam{cam_idx:02d}"
                 table_mask_dir = table_masks_root / f"cam{cam_idx:02d}"
-                ball_table_mask_dir = ball_table_masks_root / f"cam{cam_idx:02d}"
                 rgb_dir.mkdir(parents=True, exist_ok=True)
                 mask_dir.mkdir(parents=True, exist_ok=True)
                 table_mask_dir.mkdir(parents=True, exist_ok=True)
-                ball_table_mask_dir.mkdir(parents=True, exist_ok=True)
                 img = p.getCameraImage(
                     width=WIDTH,
                     height=HEIGHT,
@@ -933,39 +917,29 @@ def _simulate_variation_scene(
                 seg = np.reshape(img[4], (HEIGHT, WIDTH))
                 mask = (seg == ball_id).astype(np.uint8) * 255
                 table_mask = (seg == table_id).astype(np.uint8) * 255
-                ball_table_mask = ((seg == ball_id) | (seg == table_id)).astype(np.uint8) * 255
                 if not mask.any():
                     empty_masks += 1
                 if not table_mask.any():
                     empty_table_masks += 1
-                if not ball_table_mask.any():
-                    empty_ball_table_masks += 1
 
                 frame_name = f"frame{frame_idx:05d}.png"
                 rgb_path = rgb_dir / frame_name
                 mask_path = mask_dir / frame_name
                 table_mask_path = table_mask_dir / frame_name
-                ball_table_mask_path = ball_table_mask_dir / frame_name
                 if overwrite or not rgb_path.exists():
                     imageio.imwrite(rgb_path, rgb)
                 if overwrite or not mask_path.exists():
                     imageio.imwrite(mask_path, mask)
                 if overwrite or not table_mask_path.exists():
                     imageio.imwrite(table_mask_path, table_mask)
-                if overwrite or not ball_table_mask_path.exists():
-                    imageio.imwrite(ball_table_mask_path, ball_table_mask)
                 if cam_idx in video_writers:
-                    rgb_writer, mask_writer, table_mask_writer, ball_table_mask_writer = video_writers[cam_idx]
+                    rgb_writer, mask_writer, table_mask_writer = video_writers[cam_idx]
                     if rgb_writer is not None:
                         rgb_writer.append_data(rgb)
                     if mask_writer is not None:
                         mask_writer.append_data(np.repeat(mask[..., None], 3, axis=2))
                     if table_mask_writer is not None:
                         table_mask_writer.append_data(np.repeat(table_mask[..., None], 3, axis=2))
-                    if ball_table_mask_writer is not None:
-                        ball_table_mask_writer.append_data(
-                            np.repeat(ball_table_mask[..., None], 3, axis=2)
-                        )
 
             for _ in range(steps_per_frame):
                 p.stepSimulation(physicsClientId=client)
@@ -1032,11 +1006,9 @@ def _simulate_variation_scene(
             "rgb_frames": _repo_path(scene_dir / "rgb"),
             "masks": _repo_path(scene_dir / "masks"),
             "table_masks": _repo_path(scene_dir / "masks_table"),
-            "ball_table_masks": _repo_path(scene_dir / "masks_ball_table"),
             "rgb_videos": _repo_path(scene_dir / "videos" / "rgb"),
             "mask_videos": _repo_path(scene_dir / "videos" / "masks"),
             "table_mask_videos": _repo_path(scene_dir / "videos" / "masks_table"),
-            "ball_table_mask_videos": _repo_path(scene_dir / "videos" / "masks_ball_table"),
             "camera_poses": _repo_path(scene_dir / "cameras.json"),
             "object_poses": _repo_path(scene_dir / "object_poses.csv"),
             "metadata": _repo_path(scene_dir / "metadata.json"),
@@ -1077,11 +1049,9 @@ def _simulate_variation_scene(
         "environment": environment_info,
         "empty_masks": empty_masks,
         "empty_table_masks": empty_table_masks,
-        "empty_ball_table_masks": empty_ball_table_masks,
         "mask_outputs": {
             "ball": _repo_path(masks_root),
             "table": _repo_path(table_masks_root),
-            "ball_table": _repo_path(ball_table_masks_root),
         },
         "videos_written": write_videos,
         "render_camera_names": "all" if render_camera_names is None else sorted(render_camera_names),
@@ -1089,7 +1059,6 @@ def _simulate_variation_scene(
         "rgb_videos": _repo_path(videos_rgb_root) if write_videos else None,
         "mask_videos": _repo_path(videos_masks_root) if write_videos else None,
         "table_mask_videos": _repo_path(videos_table_masks_root) if write_videos else None,
-        "ball_table_mask_videos": _repo_path(videos_ball_table_masks_root) if write_videos else None,
         "physics_params": physics_params,
     }
     with (scene_dir / "metadata.json").open("w", encoding="utf-8") as f:

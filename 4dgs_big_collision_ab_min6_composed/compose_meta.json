@@ -1,0 +1,17 @@
+{
+  "output": "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/4dgs_big_collision_ab_min6_composed/chkpnt_composed.pth",
+  "inputs": [
+    "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/4dgs_big_collision_object_a_min6/chkpnt15000.pth",
+    "/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/4dgs_big_collision_object_b_min6/chkpnt15000.pth"
+  ],
+  "input_iterations": [
+    15000,
+    15000
+  ],
+  "input_gaussian_counts": [
+    9148,
+    23927
+  ],
+  "num_points": 33075,
+  "iteration": 15000
+}

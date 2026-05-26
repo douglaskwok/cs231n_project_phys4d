@@ -31,6 +31,10 @@ def _overlay(rgb: np.ndarray, mask: np.ndarray) -> np.ndarray:
     return out
 
 
+def _mask_rgb(mask: np.ndarray) -> np.ndarray:
+    return np.repeat(mask[..., None], 3, axis=2).astype(np.uint8) * 255
+
+
 def _parse_cameras(value: str) -> list[int]:
     value = value.strip().lower()
     if value == "all":
@@ -51,10 +55,12 @@ def _parse_frames(value: str | None, scene_root: Path, camera: int) -> list[int]
 def _write_camera_video(
     *,
     scene_root: Path,
+    mask_subdir: str,
     camera: int,
     frames: list[int],
     out_path: Path,
     fps: int,
+    mode: str,
 ) -> int:
     written = 0
     with imageio.get_writer(
@@ -67,10 +73,12 @@ def _write_camera_video(
         for frame in frames:
             tag = f"{frame:05d}"
             rgb_path = scene_root / "rgb" / f"cam{camera:02d}" / f"frame{tag}.png"
-            mask_path = scene_root / "masks" / f"cam{camera:02d}" / f"frame{tag}.png"
+            mask_path = scene_root / mask_subdir / f"cam{camera:02d}" / f"frame{tag}.png"
             if not rgb_path.is_file() or not mask_path.is_file():
                 continue
-            writer.append_data(_overlay(_read_rgb(rgb_path), _read_mask(mask_path)))
+            mask = _read_mask(mask_path)
+            frame_out = _mask_rgb(mask) if mode == "mask" else _overlay(_read_rgb(rgb_path), mask)
+            writer.append_data(frame_out)
             written += 1
     return written
 
@@ -78,11 +86,13 @@ def _write_camera_video(
 def _write_grid_video(
     *,
     scene_root: Path,
+    mask_subdir: str,
     cameras: list[int],
     frames: list[int],
     out_path: Path,
     fps: int,
     cols: int,
+    mode: str,
 ) -> int:
     if not cameras or not frames:
         return 0
@@ -102,9 +112,10 @@ def _write_grid_video(
             tiles = []
             for camera in cameras:
                 rgb_path = scene_root / "rgb" / f"cam{camera:02d}" / f"frame{tag}.png"
-                mask_path = scene_root / "masks" / f"cam{camera:02d}" / f"frame{tag}.png"
+                mask_path = scene_root / mask_subdir / f"cam{camera:02d}" / f"frame{tag}.png"
                 if rgb_path.is_file() and mask_path.is_file():
-                    tiles.append(_overlay(_read_rgb(rgb_path), _read_mask(mask_path)))
+                    mask = _read_mask(mask_path)
+                    tiles.append(_mask_rgb(mask) if mode == "mask" else _overlay(_read_rgb(rgb_path), mask))
                 else:
                     tiles.append(black)
             while len(tiles) < rows * cols:
@@ -126,6 +137,8 @@ def main() -> int:
     parser.add_argument("--frames", default=None, help="Comma-separated frames; default uses all frames from first camera")
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--grid-cols", type=int, default=4)
+    parser.add_argument("--mask-subdir", default="masks")
+    parser.add_argument("--mode", choices=["overlay", "mask"], default="overlay")
     args = parser.parse_args()
 
     scene_root = args.scene_root.resolve()
@@ -133,25 +146,30 @@ def main() -> int:
     frames = _parse_frames(args.frames, scene_root, cameras[0])
     out_dir = (args.out_dir or scene_root / "videos" / "overlays").resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    suffix = "mask" if args.mode == "mask" else "overlay"
 
     for camera in cameras:
         count = _write_camera_video(
             scene_root=scene_root,
+            mask_subdir=args.mask_subdir,
             camera=camera,
             frames=frames,
-            out_path=out_dir / f"cam{camera:02d}_overlay.mp4",
+            out_path=out_dir / f"cam{camera:02d}_{suffix}.mp4",
             fps=args.fps,
+            mode=args.mode,
         )
-        print(f"wrote {out_dir / f'cam{camera:02d}_overlay.mp4'} ({count} frames)")
+        print(f"wrote {out_dir / f'cam{camera:02d}_{suffix}.mp4'} ({count} frames)")
     count = _write_grid_video(
         scene_root=scene_root,
+        mask_subdir=args.mask_subdir,
         cameras=cameras,
         frames=frames,
-        out_path=out_dir / "all_cams_overlay_grid.mp4",
+        out_path=out_dir / f"all_cams_{suffix}_grid.mp4",
         fps=args.fps,
         cols=args.grid_cols,
+        mode=args.mode,
     )
-    print(f"wrote {out_dir / 'all_cams_overlay_grid.mp4'} ({count} frames)")
+    print(f"wrote {out_dir / f'all_cams_{suffix}_grid.mp4'} ({count} frames)")
     return 0
 
 

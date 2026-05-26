@@ -17,7 +17,12 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from plyfile import PlyData, PlyElement
+
+try:
+    from plyfile import PlyData, PlyElement
+except ModuleNotFoundError:
+    PlyData = None
+    PlyElement = None
 
 
 def _write_ply(
@@ -73,10 +78,22 @@ def _write_ply(
 
     dtype = [(a, "f4") for a in attrs]
     stacked = np.concatenate(cols, axis=1)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if PlyData is not None and PlyElement is not None:
+        elements = np.empty(n, dtype=dtype)
+        elements[:] = list(map(tuple, stacked))
+        PlyData([PlyElement.describe(elements, "vertex")]).write(str(path))
+        return
+
     elements = np.empty(n, dtype=dtype)
     elements[:] = list(map(tuple, stacked))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    PlyData([PlyElement.describe(elements, "vertex")]).write(str(path))
+    header = ["ply", "format binary_little_endian 1.0", f"element vertex {n}"]
+    for attr in attrs:
+        header.append(f"property float {attr}")
+    header.append("end_header")
+    with path.open("wb") as f:
+        f.write(("\n".join(header) + "\n").encode("ascii"))
+        elements.tofile(f)
 
 
 def export_checkpoint_to_ply(checkpoint: Path, output: Path) -> dict:

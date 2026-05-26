@@ -1,0 +1,1 @@
+Namespace(sh_degree=3, source_path='/data/4d_scene', model_path='/outputs/4dgs_big_collision_object_b_min6', images='images', resolution=1, white_background=False, data_device='cuda', eval=True, extension='.png', num_extra_pts=0, loaded_pth='', frame_ratio=1, dataloader=True, prefilter_var=-1.0)
