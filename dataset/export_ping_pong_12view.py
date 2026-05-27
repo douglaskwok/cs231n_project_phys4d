@@ -41,23 +41,24 @@ SIM_HZ = 480.0
 DURATION_SEC = 4.0
 TRAIN_DURATION_SEC = 1.0
 TEST_DURATION_SEC = 0.5
-TABLE_TOP_Z = 0.75
-TABLE_LENGTH = 1.20
-TABLE_WIDTH = 0.80
+TABLE_TOP_Z = 0.06
+TABLE_LENGTH = 5.20
+TABLE_WIDTH = 5.20
 TABLE_THICKNESS = 0.06
 BALL_RADIUS = 0.100
 BALL_MASS = 0.0027
-BALL_START_XY = [-0.12, -0.04]
-BALL_START_HEIGHT_ABOVE_SURFACE = 0.80
+BALL_START_XY = [0.0, 0.20]
+BALL_SIDE_START_X = 0.35
+BALL_START_HEIGHT_ABOVE_SURFACE = 2.50
 BALL_INITIAL_ANGULAR_VELOCITY = [0.0, 0.0, 0.0]
 GRAVITY = -9.80665
-BALL_LATERAL_FRICTION = 0.20
-BALL_ROLLING_FRICTION = 0.0005
-BALL_SPINNING_FRICTION = 0.0005
-TABLE_LATERAL_FRICTION = 0.35
+BALL_LATERAL_FRICTION = 0.03
+BALL_ROLLING_FRICTION = 0.0
+BALL_SPINNING_FRICTION = 0.0
+TABLE_LATERAL_FRICTION = 0.03
 CONTACT_PROCESSING_THRESHOLD = 0.0
 RESTITUTION_VELOCITY_THRESHOLD = 0.0
-TARGET = [0.0, 0.0, TABLE_TOP_Z + 0.20]
+TARGET = [0.0, 0.0, 0.95]
 ROOM_HALF_X = 2.60
 ROOM_HALF_Y = 2.60
 ROOM_HEIGHT = 2.20
@@ -67,10 +68,10 @@ ROOM_FLOOR_Z = 0.0
 DATASET_OUTPUTS_ROOT = REPO_ROOT / "dataset" / "outputs"
 DEFAULT_OUTPUT_DIR = DATASET_OUTPUTS_ROOT / "ping_pong_12view"
 
-FULL_RESTITUTIONS = [0.35, 0.50, 0.65, 0.80, 0.93]
-FULL_BALL_ANGLES_DEG = [0.0, 5.0, 10.0, 15.0, 20.0]
-POC_RESTITUTIONS = [0.50, 0.90]
-POC_BALL_ANGLES_DEG = [0.0, 15.0]
+FULL_RESTITUTIONS = [0.87, 0.90, 0.93]
+FULL_BALL_ANGLES_DEG = [-5.0, 0.0, 5.0]
+POC_RESTITUTIONS = [0.90, 0.93]
+POC_BALL_ANGLES_DEG = [0.0, 5.0]
 
 
 def _ensure_pybullet():
@@ -152,23 +153,23 @@ def _default_camera_rows() -> list[dict]:
             },
             {
                 "name": "low_front_left",
-                "eye_x": "-0.9",
-                "eye_y": "-1.35",
-                "eye_z": str(TABLE_TOP_Z + 0.12),
+                "eye_x": "-1.15",
+                "eye_y": "-1.65",
+                "eye_z": "0.62",
                 "up_x": "0",
                 "up_y": "0",
                 "up_z": "1",
-                "fov_deg": "40",
+                "fov_deg": "58",
             },
             {
                 "name": "low_back_right",
-                "eye_x": "0.9",
-                "eye_y": "1.35",
-                "eye_z": str(TABLE_TOP_Z + 0.12),
+                "eye_x": "1.15",
+                "eye_y": "1.65",
+                "eye_z": "0.62",
                 "up_x": "0",
                 "up_y": "0",
                 "up_z": "1",
-                "fov_deg": "40",
+                "fov_deg": "58",
             },
         ]
     )
@@ -439,6 +440,16 @@ def _initial_velocity_for_ball_angle(
     impact_vertical_speed = math.sqrt(2.0 * abs(GRAVITY) * drop_to_contact_m)
     horizontal_speed = impact_vertical_speed * math.tan(math.radians(ball_angle_deg))
     return [horizontal_speed, 0.0, 0.0]
+
+
+def _start_xy_for_ball_angle(ball_angle_deg: float) -> list[float]:
+    """Start angled drops near the opposite side so they cross the table."""
+
+    if ball_angle_deg > 0.0:
+        return [-BALL_SIDE_START_X, BALL_START_XY[1]]
+    if ball_angle_deg < 0.0:
+        return [BALL_SIDE_START_X, BALL_START_XY[1]]
+    return BALL_START_XY
 
 
 def _scene_name(index: int, restitution: float, ball_angle_deg: float) -> str:
@@ -774,7 +785,8 @@ def _simulate_variation_scene(
         rgbaColor=[0.10, 0.52, 0.88, 1.0],
         physicsClientId=client,
     )
-    start_surface_point = surface_center + tangent_x * BALL_START_XY[0] + tangent_y * BALL_START_XY[1]
+    ball_start_xy = _start_xy_for_ball_angle(ball_angle_deg)
+    start_surface_point = surface_center + tangent_x * ball_start_xy[0] + tangent_y * ball_start_xy[1]
     ball_start = start_surface_point + normal * BALL_START_HEIGHT_ABOVE_SURFACE
     ball_id = p.createMultiBody(
         baseMass=BALL_MASS,
@@ -958,7 +970,12 @@ def _simulate_variation_scene(
         "scene": {
             "true_restitution": restitution,
             "ball_angle_deg": ball_angle_deg,
-            "ball_angle_note": "Approximate first-impact trajectory angle from vertical in vacuum; implemented by horizontal launch speed along +x.",
+            "ball_angle_note": (
+                "Approximate first-impact trajectory angle from vertical in vacuum; "
+                "implemented by signed horizontal launch speed along x. Angled "
+                "drops start from the opposite side of the table so the ball "
+                "crosses the scene instead of falling off early."
+            ),
             "environment": environment_info,
             "surface_normal": surface_normal,
             "objects": [
@@ -972,6 +989,7 @@ def _simulate_variation_scene(
                         ball_angle_deg,
                         ball_radius_m=ball_radius_m,
                     ),
+                    "start_xy_m": ball_start_xy,
                 },
                 {
                     "name": "table",
@@ -1024,7 +1042,9 @@ def _simulate_variation_scene(
             "mass_kg": BALL_MASS,
             "radius_m": ball_radius_m,
             "environment": environment,
-            "initial_direction": "+x",
+            "initial_direction": "signed_x_from_ball_angle",
+            "start_xy_m": ball_start_xy,
+            "table_size_m": [TABLE_LENGTH, TABLE_WIDTH, TABLE_THICKNESS],
             "ball_lateral_friction": BALL_LATERAL_FRICTION,
             "table_lateral_friction": TABLE_LATERAL_FRICTION,
             "contact_processing_threshold": CONTACT_PROCESSING_THRESHOLD,
@@ -1163,8 +1183,9 @@ def generate_variation_dataset(
             "mass_kg": BALL_MASS,
             "radius_m": ball_radius_m,
             "environment": environment,
-            "initial_direction": "+x",
+            "initial_direction": "signed_x_from_ball_angle",
             "drop_height_above_surface_m": BALL_START_HEIGHT_ABOVE_SURFACE,
+            "table_size_m": [TABLE_LENGTH, TABLE_WIDTH, TABLE_THICKNESS],
             "drag_enabled": False,
         },
         "videos_written": write_videos,

@@ -243,6 +243,7 @@ pybullet_tabletop_10view.ipynb
 
 # Generated simulation/dataset exports and Modal downloads
 /dataset/outputs/
+/dataset/outputs/phys4d_final/
 /pybullet_outputs/
 /frames/
 /exported/
@@ -254,16 +255,37 @@ pybullet_tabletop_10view.ipynb
 # Generated segmentation and 4DGS run outputs
 /segmentation/**/runs/
 
-# Large generated artifacts
+# Large generated model artifacts
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# Generated media artifacts
 *.mp4
 *.mov
 *.avi
 *.mkv
+*.m4v
+*.webm
+*.gif
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.bmp
+*.exr
+*.webp
+*.wav
+*.mp3
+*.flac
+*.aac
+*.ogg
+
+# Large generated geometry/data artifacts
 *.ply
 *.splat
-*.pth
-*.pt
-*.ckpt
 *.npy
 *.npz
 *.h5

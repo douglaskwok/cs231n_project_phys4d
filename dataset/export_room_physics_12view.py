@@ -59,6 +59,8 @@ SCENARIO_DEFAULTS = {
     "deformable": {"duration_sec": 2.6, "sim_hz": 480.0},
 }
 
+COLLISION_TABLE_TOP_Z = 0.35
+COLLISION_OBJECT_HALF_EXTENTS_M = [0.120, 0.120, 0.050]
 STACKING_NUM_BLOCKS = 3
 STACKING_BLOCK_SIZE_M = [0.120, 0.120, 0.070]
 STACKING_BLOCK_MASS_KG = 0.180
@@ -117,23 +119,23 @@ def _default_camera_rows() -> list[dict]:
             },
             {
                 "name": "low_front_left",
-                "eye_x": "-0.9",
-                "eye_y": "-1.35",
-                "eye_z": str(TABLE_TOP_Z + 0.12),
+                "eye_x": "-1.15",
+                "eye_y": "-1.65",
+                "eye_z": "0.62",
                 "up_x": "0",
                 "up_y": "0",
                 "up_z": "1",
-                "fov_deg": "40",
+                "fov_deg": "58",
             },
             {
                 "name": "low_back_right",
-                "eye_x": "0.9",
-                "eye_y": "1.35",
-                "eye_z": str(TABLE_TOP_Z + 0.12),
+                "eye_x": "1.15",
+                "eye_y": "1.65",
+                "eye_z": "0.62",
                 "up_x": "0",
                 "up_y": "0",
                 "up_z": "1",
-                "fov_deg": "40",
+                "fov_deg": "58",
             },
         ]
     )
@@ -169,6 +171,7 @@ def _create_table(
     *,
     restitution: float,
     lateral_friction: float,
+    table_top_z: float = TABLE_TOP_Z,
     rgba_color: list[float] | None = None,
 ) -> int:
     table_col = p.createCollisionShape(
@@ -186,7 +189,7 @@ def _create_table(
         baseMass=0.0,
         baseCollisionShapeIndex=table_col,
         baseVisualShapeIndex=table_vis,
-        basePosition=[0.0, 0.0, TABLE_TOP_Z - TABLE_THICKNESS / 2.0],
+        basePosition=[0.0, 0.0, table_top_z - TABLE_THICKNESS / 2.0],
         physicsClientId=client,
     )
     p.changeDynamics(
@@ -296,8 +299,15 @@ def _add_collision_object(
 
 
 def _setup_collision_scene(p, client: int) -> tuple[int, list[BodyInfo], list[str], dict]:
-    table_id = _create_table(p, client, restitution=0.10, lateral_friction=0.02)
-    half = [0.090, 0.090, 0.040]
+    table_top_z = COLLISION_TABLE_TOP_Z
+    table_id = _create_table(
+        p,
+        client,
+        restitution=0.10,
+        lateral_friction=0.02,
+        table_top_z=table_top_z,
+    )
+    half = COLLISION_OBJECT_HALF_EXTENTS_M
     objects = [
         _add_collision_object(
             p,
@@ -305,7 +315,7 @@ def _setup_collision_scene(p, client: int) -> tuple[int, list[BodyInfo], list[st
             name="object_a",
             mass_kg=0.220,
             half_extents=half,
-            position=[-0.38, 0.0, TABLE_TOP_Z + half[2]],
+            position=[-0.38, 0.0, table_top_z + half[2]],
             velocity=[0.95, 0.0, 0.0],
             rgba_color=[0.90, 0.20, 0.16, 1.0],
         ),
@@ -315,7 +325,7 @@ def _setup_collision_scene(p, client: int) -> tuple[int, list[BodyInfo], list[st
             name="object_b",
             mass_kg=0.160,
             half_extents=half,
-            position=[0.38, 0.0, TABLE_TOP_Z + half[2]],
+            position=[0.38, 0.0, table_top_z + half[2]],
             velocity=[-0.75, 0.0, 0.0],
             rgba_color=[0.12, 0.50, 0.92, 1.0],
         ),
@@ -328,6 +338,7 @@ def _setup_collision_scene(p, client: int) -> tuple[int, list[BodyInfo], list[st
         "object_b_mass_kg": 0.160,
         "object_restitution": 0.80,
         "object_lateral_friction": 0.02,
+        "table_top_z_m": table_top_z,
     }
     return table_id, objects, [obj.name for obj in objects], meta
 
@@ -562,6 +573,36 @@ def _open_video_writers(
     return writers
 
 
+def _open_per_object_mask_video_writers(
+    *,
+    imageio_module,
+    scene_dir: Path,
+    camera_records: list[dict],
+    video_fps: float,
+    video_camera_names: set[str] | None,
+    object_names: list[str],
+    overwrite: bool,
+) -> dict[int, dict[str, object | None]]:
+    writers: dict[int, dict[str, object | None]] = {}
+    for cam in camera_records:
+        cam_idx = int(cam["index"])
+        cam_name = str(cam["name"])
+        if video_camera_names is not None and cam_name not in video_camera_names:
+            continue
+
+        per_object: dict[str, object | None] = {}
+        for object_name in object_names:
+            path = scene_dir / "videos" / f"masks_{object_name}" / f"cam{cam_idx:02d}_{cam_name}.mp4"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            per_object[object_name] = (
+                _open_mp4_writer(imageio_module, path, fps=video_fps)
+                if overwrite or not path.exists()
+                else None
+            )
+        writers[cam_idx] = per_object
+    return writers
+
+
 def _scenario_setup(
     p,
     client: int,
@@ -649,6 +690,19 @@ def simulate_scenario(
             camera_records=camera_records,
             video_fps=video_fps,
             video_camera_names=video_camera_names,
+            overwrite=overwrite,
+        )
+        if write_videos
+        else {}
+    )
+    per_object_video_writers = (
+        _open_per_object_mask_video_writers(
+            imageio_module=imageio,
+            scene_dir=scene_dir,
+            camera_records=camera_records,
+            video_fps=video_fps,
+            video_camera_names=video_camera_names,
+            object_names=expected_names,
             overwrite=overwrite,
         )
         if write_videos
@@ -754,6 +808,12 @@ def simulate_scenario(
                         object_table_writer.append_data(
                             np.repeat(object_table_mask[..., None], 3, axis=2).astype(np.uint8) * 255
                         )
+                if cam_idx in per_object_video_writers:
+                    for name, writer in per_object_video_writers[cam_idx].items():
+                        if writer is not None:
+                            writer.append_data(
+                                np.repeat(object_masks[name][..., None], 3, axis=2).astype(np.uint8) * 255
+                            )
 
             for _ in range(steps_per_frame):
                 internal_step += 1
@@ -764,10 +824,15 @@ def simulate_scenario(
             for writer in writers:
                 if writer is not None:
                     writer.close()
+        for writers in per_object_video_writers.values():
+            for writer in writers.values():
+                if writer is not None:
+                    writer.close()
         p.disconnect(physicsClientId=client)
 
     _write_pose_rows(pose_rows, scene_dir / "object_poses.csv")
 
+    table_top_z = float(scenario_meta.get("table_top_z_m", TABLE_TOP_Z))
     config = {
         "experiment": f"{scenario}_12view_room",
         "description": f"Generated 12-view room {scenario} scene.",
@@ -784,7 +849,7 @@ def simulate_scenario(
             "table": {
                 "name": "table",
                 "shape": "box",
-                "top_center_m": [0.0, 0.0, TABLE_TOP_Z],
+                "top_center_m": [0.0, 0.0, table_top_z],
                 "size_m": [TABLE_LENGTH, TABLE_WIDTH, TABLE_THICKNESS],
             },
             "scenario_params": scenario_meta,
@@ -820,6 +885,10 @@ def simulate_scenario(
             "mask_videos": _repo_path(scene_dir / "videos" / "masks"),
             "table_mask_videos": _repo_path(scene_dir / "videos" / "masks_table"),
             "object_table_mask_videos": _repo_path(scene_dir / "videos" / "masks_object_table"),
+            "object_mask_videos": {
+                name: _repo_path(scene_dir / "videos" / f"masks_{name}")
+                for name in expected_names
+            },
             "camera_poses": _repo_path(scene_dir / "cameras.json"),
             "object_poses": _repo_path(scene_dir / "object_poses.csv"),
             "metadata": _repo_path(scene_dir / "metadata.json"),

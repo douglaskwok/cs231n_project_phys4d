@@ -35,18 +35,32 @@ Generate or refresh it with:
 phys_sim/bin/python dataset/generate_phys4d_final.py --video-fps 60
 ```
 
-The ball-drop split is a compact 3x3 grid centered on the demo-like bounce:
+Generate only the final collision scene with:
+
+```bash
+phys_sim/bin/python dataset/generate_collision_final.py --video-fps 60
+```
+
+The ball-drop split is a compact 3x3 grid centered on repeated visible bounces.
+It treats the bounce surface as a low floor platform rather than a table, so a
+2.5 m drop still stays inside the room/camera framing:
 
 ```text
-restitution:    0.70, 0.78, 0.86
-ball_angle_deg: -8.0, 0.0, 8.0
+restitution:    0.87, 0.90, 0.93
+ball_angle_deg: -5.0, 0.0, 5.0
+drop height:    2.50 m above floor platform
+surface height: 0.06 m
+platform size:  5.20 m x 5.20 m
+friction:       low-friction ball/platform contact
 fps:            60
 sim_hz:         480
 ```
 
 The angle is implemented as an approximate first-impact trajectory angle from
 vertical. The exporter computes the required horizontal velocity from the drop
-height while leaving gravity to determine the vertical speed.
+height while leaving gravity to determine the vertical speed. The ball starts
+slightly deeper than room center while angled variants keep the same
+side-to-side slant.
 
 ### First 4DGS Timing Run
 
@@ -55,16 +69,16 @@ record wall-clock timing:
 
 ```bash
 bash 4dgs/scripts/train_one_final_scene_4dgs.sh \
-  dataset/outputs/phys4d_final/ball_drop_3x3_60fps/scene_0004_e0p78_a0p0 \
-  ball_drop_e0p78_a0p0_object
+  dataset/outputs/phys4d_final/ball_drop_3x3_60fps/scene_0004_e0p87_a0p0 \
+  ball_drop_e0p87_a0p0_object
 ```
 
 It writes:
 
 ```text
-4dgs/experiments/object_only/runs/ball_drop_e0p78_a0p0_object/
-latest_ball_drop_e0p78_a0p0_object_4dgs/
-latest_ball_drop_e0p78_a0p0_object_4dgs/timing.json
+4dgs/experiments/object_only/runs/ball_drop_e0p87_a0p0_object/
+dataset/outputs/phys4d_final/ball_drop_3x3_60fps/scene_0004_e0p87_a0p0/4dgs/ball_drop_e0p87_a0p0_object/
+dataset/outputs/phys4d_final/ball_drop_3x3_60fps/scene_0004_e0p87_a0p0/4dgs/ball_drop_e0p87_a0p0_object/timing.json
 ```
 
 For a quick smoke test before the quality run, add `--quick`.
@@ -571,8 +585,12 @@ the union of both boxes, while `masks_object_a/` and `masks_object_b/` let you
 train or evaluate each object separately. The default scene lasts 2.6 seconds:
 157 frames at 60 FPS with 480 Hz PyBullet simulation.
 
+For visibility, the collision table is raised above the ball-drop floor
+platform: `table_top_z_m = 0.35`. Ball-drop still uses the low `0.06 m`
+surface height.
+
 The collision boxes are intentionally enlarged for reconstruction experiments:
-the default full size is `0.18 m x 0.18 m x 0.08 m`. Earlier small boxes were
+the default full size is `0.24 m x 0.24 m x 0.10 m`. Earlier small boxes were
 easy to segment but occupied too few pixels for stable object-only 4DGS.
 
 This scenario is useful for testing multi-object motion, contact, and occlusion.
@@ -650,6 +668,7 @@ videos/rgb/cam00_front.mp4
 videos/masks/cam00_front.mp4
 videos/masks_table/cam00_front.mp4
 videos/masks_object_table/cam00_front.mp4
+videos/masks_<object_name>/cam00_front.mp4
 cameras.json
 object_poses.csv
 metadata.json
@@ -728,7 +747,7 @@ room_physics_4dgs_quick_2p6s.yaml  collision and deformable
 room_physics_4dgs_quick_5p0s.yaml  stacking
 ```
 
-For quality 4DGS runs, use the 15k-iteration configs:
+For quality 4DGS runs, use the 30k-iteration configs:
 
 ```text
 room_physics_4dgs_2p6s.yaml  collision and deformable

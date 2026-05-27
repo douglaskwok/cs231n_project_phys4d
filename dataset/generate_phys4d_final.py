@@ -30,9 +30,13 @@ if str(REPO_ROOT) not in sys.path:
 from dataset.export_ping_pong_12view import (  # noqa: E402
     BALL_MASS,
     BALL_RADIUS,
+    BALL_SIDE_START_X,
     BALL_START_HEIGHT_ABOVE_SURFACE,
     DATASET_OUTPUTS_ROOT,
     SIM_HZ,
+    TABLE_LENGTH,
+    TABLE_THICKNESS,
+    TABLE_WIDTH,
     _repo_path,
     _scene_name,
     _simulate_variation_scene,
@@ -45,8 +49,8 @@ from dataset.export_room_physics_12view import (  # noqa: E402
 
 FINAL_ROOT = DATASET_OUTPUTS_ROOT / "phys4d_final"
 FINAL_FPS = 60.0
-BALL_DROP_RESTITUTIONS = [0.70, 0.78, 0.86]
-BALL_DROP_ANGLES_DEG = [-8.0, 0.0, 8.0]
+BALL_DROP_RESTITUTIONS = [0.87, 0.90, 0.93]
+BALL_DROP_ANGLES_DEG = [-5.0, 0.0, 5.0]
 BALL_DROP_DURATION_SEC = 4.0
 ROOM_SCENARIOS = ["collision", "stacking", "deformable"]
 
@@ -143,6 +147,8 @@ def generate_ball_drop(
             "ball_radius_m": BALL_RADIUS,
             "ball_mass_kg": BALL_MASS,
             "drop_height_above_surface_m": BALL_START_HEIGHT_ABOVE_SURFACE,
+            "angled_drop_start_x_abs_m": BALL_SIDE_START_X,
+            "table_size_m": [TABLE_LENGTH, TABLE_WIDTH, TABLE_THICKNESS],
             "environment": "room",
             "drag_enabled": False,
         },
