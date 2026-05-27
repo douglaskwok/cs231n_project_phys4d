@@ -269,6 +269,7 @@ def _add_collision_object(
     position: list[float],
     velocity: list[float],
     rgba_color: list[float],
+    restitution: float = 0.80,
 ) -> BodyInfo:
     col = p.createCollisionShape(p.GEOM_BOX, halfExtents=half_extents, physicsClientId=client)
     vis = p.createVisualShape(
@@ -288,7 +289,7 @@ def _add_collision_object(
         body,
         -1,
         lateralFriction=0.02,
-        restitution=0.80,
+        restitution=restitution,
         rollingFriction=0.001,
         spinningFriction=0.001,
         contactProcessingThreshold=0.0,
@@ -298,7 +299,14 @@ def _add_collision_object(
     return BodyInfo(name=name, body_id=body, mass_kg=mass_kg, kind="rigid_box")
 
 
-def _setup_collision_scene(p, client: int) -> tuple[int, list[BodyInfo], list[str], dict]:
+def _setup_collision_scene(
+    p,
+    client: int,
+    *,
+    mass_a_kg: float = 0.220,
+    velocity_scale: float = 1.0,
+    restitution: float = 0.80,
+) -> tuple[int, list[BodyInfo], list[str], dict]:
     table_top_z = COLLISION_TABLE_TOP_Z
     table_id = _create_table(
         p,
@@ -308,16 +316,19 @@ def _setup_collision_scene(p, client: int) -> tuple[int, list[BodyInfo], list[st
         table_top_z=table_top_z,
     )
     half = COLLISION_OBJECT_HALF_EXTENTS_M
+    vel_a = 0.95 * velocity_scale
+    vel_b = 0.75 * velocity_scale
     objects = [
         _add_collision_object(
             p,
             client,
             name="object_a",
-            mass_kg=0.220,
+            mass_kg=mass_a_kg,
             half_extents=half,
             position=[-0.38, 0.0, table_top_z + half[2]],
-            velocity=[0.95, 0.0, 0.0],
+            velocity=[vel_a, 0.0, 0.0],
             rgba_color=[0.90, 0.20, 0.16, 1.0],
+            restitution=restitution,
         ),
         _add_collision_object(
             p,
@@ -326,18 +337,22 @@ def _setup_collision_scene(p, client: int) -> tuple[int, list[BodyInfo], list[st
             mass_kg=0.160,
             half_extents=half,
             position=[0.38, 0.0, table_top_z + half[2]],
-            velocity=[-0.75, 0.0, 0.0],
+            velocity=[-vel_b, 0.0, 0.0],
             rgba_color=[0.12, 0.50, 0.92, 1.0],
+            restitution=restitution,
         ),
     ]
     meta = {
         "scenario": "collision",
         "object_half_extents_m": half,
         "object_full_size_m": [2.0 * v for v in half],
-        "object_a_mass_kg": 0.220,
+        "object_a_mass_kg": mass_a_kg,
         "object_b_mass_kg": 0.160,
-        "object_restitution": 0.80,
+        "object_restitution": restitution,
         "object_lateral_friction": 0.02,
+        "velocity_scale": velocity_scale,
+        "object_a_initial_velocity_m_s": vel_a,
+        "object_b_initial_velocity_m_s": vel_b,
         "table_top_z_m": table_top_z,
     }
     return table_id, objects, [obj.name for obj in objects], meta
@@ -607,9 +622,18 @@ def _scenario_setup(
     p,
     client: int,
     scenario: str,
+    *,
+    collision_mass_a_kg: float = 0.220,
+    collision_velocity_scale: float = 1.0,
+    collision_restitution: float = 0.80,
 ) -> tuple[int, list[BodyInfo], list[str], dict]:
     if scenario == "collision":
-        return _setup_collision_scene(p, client)
+        return _setup_collision_scene(
+            p, client,
+            mass_a_kg=collision_mass_a_kg,
+            velocity_scale=collision_velocity_scale,
+            restitution=collision_restitution,
+        )
     if scenario == "stacking":
         return _setup_stacking_scene(p, client)
     if scenario == "deformable":
@@ -629,6 +653,9 @@ def simulate_scenario(
     video_camera_names: set[str] | None,
     overwrite: bool,
     write_videos: bool,
+    collision_mass_a_kg: float = 0.220,
+    collision_velocity_scale: float = 1.0,
+    collision_restitution: float = 0.80,
 ) -> dict:
     import imageio.v2 as imageio
 
@@ -640,7 +667,12 @@ def simulate_scenario(
     )
     steps_per_frame = _steps_per_frame(video_fps, sim_hz)
     environment_info = _create_room_geometry(p, client)
-    table_id, bodies, expected_names, scenario_meta = _scenario_setup(p, client, scenario)
+    table_id, bodies, expected_names, scenario_meta = _scenario_setup(
+        p, client, scenario,
+        collision_mass_a_kg=collision_mass_a_kg,
+        collision_velocity_scale=collision_velocity_scale,
+        collision_restitution=collision_restitution,
+    )
 
     camera_rows = _default_camera_rows()
     if render_camera_names is not None:

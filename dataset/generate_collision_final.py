@@ -1,12 +1,19 @@
 #!/usr/bin/env python
-"""Generate only the final 12-view collision PyBullet dataset.
+"""Generate the final 2x2x2 collision variant PyBullet dataset.
 
-This is a narrow companion to ``generate_phys4d_final.py`` for when we want to
-refresh collision without regenerating ball drop, stacking, or deformable data.
-It writes:
+Three physical parameters are swept in a 2x2x2 grid:
 
-    dataset/outputs/phys4d_final/collision_base_60fps/
-      scene_0000_collision_room/
+  mass_a_kg      – mass of object_a (object_b is fixed at 0.160 kg)
+  velocity_scale – scalar applied to both objects' initial approach speeds
+  restitution    – coefficient of restitution between the two objects
+
+This mirrors the ball-drop structure in ``generate_phys4d_final.py`` and
+produces 8 scenes under:
+
+    dataset/outputs/phys4d_final/collision_2x2x2_60fps/
+      scene_0000_col_m100_v060_r025/
+      ...
+      scene_0007_col_m440_v140_r075/
       scenario_manifest.json
 """
 
@@ -40,15 +47,40 @@ from dataset.export_room_physics_12view import (  # noqa: E402
 )
 
 FINAL_ROOT = DATASET_OUTPUTS_ROOT / "phys4d_final"
-DEFAULT_OUTPUT_DIR = FINAL_ROOT / "collision_base_60fps"
+DEFAULT_OUTPUT_DIR = FINAL_ROOT / "collision_2x2x2_60fps"
 DEFAULT_VIDEO_FPS = 60.0
 SCENARIO = "collision"
-SCENE_ID = "scene_0000_collision_room"
+
+COLLISION_MASS_A_KG = [0.100, 0.440]
+COLLISION_VELOCITY_SCALES = [0.6, 1.4]
+COLLISION_RESTITUTIONS = [0.25, 0.75]
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def _collision_scene_name(idx: int, mass_a_kg: float, velocity_scale: float, restitution: float) -> str:
+    m_str = f"{int(round(mass_a_kg * 1000)):03d}"
+    v_str = f"{int(round(velocity_scale * 100)):03d}"
+    r_str = f"{int(round(restitution * 100)):03d}"
+    return f"scene_{idx:04d}_col_m{m_str}_v{v_str}_r{r_str}"
+
+
+def _collision_variants() -> list[dict[str, float]]:
+    variants = []
+    for mass_a_kg in COLLISION_MASS_A_KG:
+        for velocity_scale in COLLISION_VELOCITY_SCALES:
+            for restitution in COLLISION_RESTITUTIONS:
+                variants.append(
+                    {
+                        "mass_a_kg": float(mass_a_kg),
+                        "velocity_scale": float(velocity_scale),
+                        "restitution": float(restitution),
+                    }
+                )
+    return variants
 
 
 def generate_collision_final(
@@ -64,21 +96,51 @@ def generate_collision_final(
     write_videos: bool,
     dry_run: bool,
 ) -> dict[str, Any]:
-    scene_dir = output_dir / SCENE_ID
-    scene = {
-        "scene_id": SCENE_ID,
-        "path": _repo_path(scene_dir),
-        "scenario": SCENARIO,
-        "config": _repo_path(scene_dir / "config.json"),
-        "metadata": _repo_path(scene_dir / "metadata.json"),
-        "object_poses": _repo_path(scene_dir / "object_poses.csv"),
-    }
+    variants = _collision_variants()
+    scenes = []
+    for idx, params in enumerate(variants):
+        scene_id = _collision_scene_name(idx, params["mass_a_kg"], params["velocity_scale"], params["restitution"])
+        scene_dir = output_dir / scene_id
+        row = {
+            "scene_id": scene_id,
+            "path": _repo_path(scene_dir),
+            "scenario": SCENARIO,
+            "mass_a_kg": params["mass_a_kg"],
+            "velocity_scale": params["velocity_scale"],
+            "restitution": params["restitution"],
+            "config": _repo_path(scene_dir / "config.json"),
+            "metadata": _repo_path(scene_dir / "metadata.json"),
+            "object_poses": _repo_path(scene_dir / "object_poses.csv"),
+        }
+        scenes.append(row)
+        if dry_run:
+            continue
+        print(
+            f"collision [{idx + 1}/{len(variants)}] {scene_id} "
+            f"m_a={params['mass_a_kg']:.3f}kg vel={params['velocity_scale']:.1f} e={params['restitution']:.2f}",
+            flush=True,
+        )
+        simulate_scenario(
+            scenario=SCENARIO,
+            scene_dir=scene_dir,
+            video_fps=video_fps,
+            sim_hz=sim_hz,
+            duration_sec=duration_sec,
+            max_frames=max_frames,
+            render_camera_names=render_camera_names,
+            video_camera_names=video_camera_names,
+            overwrite=overwrite,
+            write_videos=write_videos,
+            collision_mass_a_kg=params["mass_a_kg"],
+            collision_velocity_scale=params["velocity_scale"],
+            collision_restitution=params["restitution"],
+        )
 
     manifest = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "scenario": SCENARIO,
         "scenario_dir": _repo_path(output_dir),
-        "num_scenes": 1,
+        "num_scenes": len(scenes),
         "fps": video_fps,
         "sim_hz": sim_hz,
         "duration_sec": duration_sec,
@@ -88,38 +150,30 @@ def generate_collision_final(
         "videos_written": write_videos,
         "render_camera_names": "all" if render_camera_names is None else sorted(render_camera_names),
         "video_camera_names": "all" if video_camera_names is None else sorted(video_camera_names),
+        "param_names": ["mass_a_kg", "velocity_scale", "restitution"],
+        "param_grid": {
+            "mass_a_kg": COLLISION_MASS_A_KG,
+            "velocity_scale": COLLISION_VELOCITY_SCALES,
+            "restitution": COLLISION_RESTITUTIONS,
+        },
         "fixed_params": {
             "environment": "room",
             "object_count": 2,
             "object_kind": "rigid_box",
             "object_full_size_m": [2.0 * value for value in COLLISION_OBJECT_HALF_EXTENTS_M],
-            "object_a_mass_kg": 0.220,
             "object_b_mass_kg": 0.160,
-            "object_restitution": 0.80,
             "object_lateral_friction": 0.02,
+            "baseline_vel_a_m_s": 0.95,
+            "baseline_vel_b_m_s": 0.75,
             "table_top_z_m": COLLISION_TABLE_TOP_Z,
             "table_size_m": [TABLE_LENGTH, TABLE_WIDTH, TABLE_THICKNESS],
         },
-        "scenes": [scene],
+        "scenes": scenes,
     }
 
-    if dry_run:
-        return manifest
+    if not dry_run:
+        _write_json(output_dir / "scenario_manifest.json", manifest)
 
-    print(f"collision [1/1] {SCENE_ID}", flush=True)
-    simulate_scenario(
-        scenario=SCENARIO,
-        scene_dir=scene_dir,
-        video_fps=video_fps,
-        sim_hz=sim_hz,
-        duration_sec=duration_sec,
-        max_frames=max_frames,
-        render_camera_names=render_camera_names,
-        video_camera_names=video_camera_names,
-        overwrite=overwrite,
-        write_videos=write_videos,
-    )
-    _write_json(output_dir / "scenario_manifest.json", manifest)
     return manifest
 
 
