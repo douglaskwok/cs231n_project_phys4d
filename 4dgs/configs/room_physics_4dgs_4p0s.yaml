@@ -10,8 +10,8 @@ rot_4d: true
 force_sh_3d: false
 batch_size: 2
 exhaust_test: false
-test_iterations: [7000, 15000]
-save_iterations: [7000, 15000]
+test_iterations: [7000, 15000, 30000]
+save_iterations: [7000, 15000, 30000]
 
 ModelParams:
   sh_degree: 3
@@ -38,12 +38,12 @@ PipelineParams:
   eval_shfs_4d: true
 
 OptimizationParams:
-  iterations: 15_000
+  iterations: 30_000
   position_lr_init: 0.00016
   position_t_lr_init: -1.0
   position_lr_final: 0.0000016
   position_lr_delay_mult: 0.01
-  position_lr_max_steps: 15_000
+  position_lr_max_steps: 30_000
   feature_lr: 0.0025
   opacity_lr: 0.05
   scaling_lr: 0.005

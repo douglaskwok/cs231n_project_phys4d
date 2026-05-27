@@ -1,5 +1,5 @@
 # fudan-zvg/4d-gaussian-splatting — quick config for 4.0s room physics scenes.
-# Use for final ball-drop smoke tests before the 15k quality run.
+# Use for final ball-drop smoke tests before the 30k quality run.
 
 gaussian_dim: 4
 time_duration: [0.0, 4.0]

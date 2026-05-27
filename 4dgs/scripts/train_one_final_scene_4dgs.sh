@@ -72,7 +72,7 @@ Config auto-selection:
   otherwise:    room_physics_4dgs_5p0s.yaml
 
 Examples:
-  # First benchmark: final ball-drop anchor, object-only, quality 15k.
+  # First benchmark: final ball-drop anchor, object-only, quality 30k.
   bash 4dgs/scripts/train_one_final_scene_4dgs.sh \
     dataset/outputs/phys4d_final/ball_drop_3x3_60fps/scene_0004_e0p78_a0p0 \
     ball_drop_e0p78_a0p0_object
@@ -302,7 +302,7 @@ if [[ -z "$CHECKPOINT" ]]; then
   if [[ "$QUALITY" == "quick" ]]; then
     CHECKPOINT="chkpnt1000.pth"
   else
-    CHECKPOINT="chkpnt15000.pth"
+    CHECKPOINT="chkpnt30000.pth"
   fi
 fi
 if [[ -z "$MODEL_REL" ]]; then
