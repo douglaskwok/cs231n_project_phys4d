@@ -30,6 +30,11 @@ SKIP_UPLOAD="0"
 SKIP_TRAIN="0"
 NO_DOWNLOAD="0"
 ALL_TRAIN="0"
+DROP_INVISIBLE_FRAMES="0"
+TRIM_EMPTY_TIME_ENDS="0"
+MIN_VISIBLE_CAMERAS="1"
+MIN_MASK_PIXELS="0"
+FRAME_LIST=""
 
 usage() {
   cat <<'EOF'
@@ -59,6 +64,19 @@ Options:
   --no-download        Do not download model folder after training.
   --all-train          Ignore scene train/test split; train on all cameras and
                        all frames. Recommended for final reconstruction/viewing.
+  --drop-invisible-frames
+                       Drop whole timestamps that fail --min-visible-cameras.
+                       Keeps synchronized 12-view packets; recommended over
+                       dropping individual camera views.
+  --trim-empty-time-ends
+                       Trim only leading/trailing weak timestamps.
+  --min-visible-cameras N
+                       With temporal filtering, keep a timestamp only if at
+                       least N cameras have visible mask pixels. Default: 1.
+  --min-mask-pixels N  Treat masks with <= N foreground pixels as invisible.
+                       Default: 0.
+  --frame-list PATH    Explicit original frame indices to keep, one per line.
+                       Useful to force multiple objects onto the same timeline.
   -h, --help           Show this help.
 
 Outputs:
@@ -262,6 +280,26 @@ while [[ $# -gt 0 ]]; do
       ALL_TRAIN="1"
       shift
       ;;
+    --drop-invisible-frames)
+      DROP_INVISIBLE_FRAMES="1"
+      shift
+      ;;
+    --trim-empty-time-ends)
+      TRIM_EMPTY_TIME_ENDS="1"
+      shift
+      ;;
+    --min-visible-cameras)
+      MIN_VISIBLE_CAMERAS="$2"
+      shift 2
+      ;;
+    --min-mask-pixels)
+      MIN_MASK_PIXELS="$2"
+      shift 2
+      ;;
+    --frame-list)
+      FRAME_LIST="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -331,6 +369,7 @@ echo "Model rel:  $MODEL_REL"
 echo "Export dir: $EXPORT_DIR"
 echo "Download:   $DOWNLOAD_DIR"
 echo "Duration:   $(scene_duration "$SCENE_DIR") seconds"
+echo "Temporal:   drop_frames=$DROP_INVISIBLE_FRAMES trim_ends=$TRIM_EMPTY_TIME_ENDS min_visible_cameras=$MIN_VISIBLE_CAMERAS min_mask_pixels=$MIN_MASK_PIXELS"
 
 TOTAL_START=$SECONDS
 EXPORT_SECONDS=0
@@ -348,7 +387,12 @@ if [[ "$SKIP_EXPORT" != "1" ]]; then
     --output "$EXPORT_DIR" \
     --mode "$MODE" \
     --background "$BACKGROUND" \
-    $(if [[ "$ALL_TRAIN" == "1" ]]; then printf '%s' "--all-train"; fi)
+    --min-visible-cameras "$MIN_VISIBLE_CAMERAS" \
+    --min-mask-pixels "$MIN_MASK_PIXELS" \
+    $(if [[ "$ALL_TRAIN" == "1" ]]; then printf '%s' "--all-train"; fi) \
+    $(if [[ "$DROP_INVISIBLE_FRAMES" == "1" ]]; then printf '%s' "--drop-invisible-frames"; fi) \
+    $(if [[ "$TRIM_EMPTY_TIME_ENDS" == "1" ]]; then printf '%s' "--trim-empty-time-ends"; fi) \
+    $(if [[ -n "$FRAME_LIST" ]]; then printf '%s %q' "--frame-list" "$FRAME_LIST"; fi)
   EXPORT_SECONDS=$((SECONDS - START))
 else
   echo

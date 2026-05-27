@@ -43,12 +43,12 @@ phys_sim/bin/python dataset/generate_collision_final.py --video-fps 60
 
 The ball-drop split is a compact 3x3 grid centered on repeated visible bounces.
 It treats the bounce surface as a low floor platform rather than a table, so a
-2.5 m drop still stays inside the room/camera framing:
+1.9 m drop stays inside the room/camera framing more reliably:
 
 ```text
 restitution:    0.87, 0.90, 0.93
 ball_angle_deg: -5.0, 0.0, 5.0
-drop height:    2.50 m above floor platform
+drop height:    1.90 m above floor platform
 surface height: 0.06 m
 platform size:  5.20 m x 5.20 m
 friction:       low-friction ball/platform contact

@@ -323,6 +323,27 @@ def export_object_only_dynerf(
     }
     with (output / "export_meta.json").open("w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
+    frame_map = {
+        "fps": fps,
+        "train": [
+            {
+                "kept_index": kept_idx,
+                "original_frame": int(frame_idx),
+                "original_time_s": float(frame_idx) / fps,
+            }
+            for kept_idx, frame_idx in enumerate(train_frame_indices)
+        ],
+        "test": [
+            {
+                "kept_index": kept_idx,
+                "original_frame": int(frame_idx),
+                "original_time_s": float(frame_idx) / fps,
+            }
+            for kept_idx, frame_idx in enumerate(test_frame_indices)
+        ],
+    }
+    with (output / "frame_map.json").open("w", encoding="utf-8") as f:
+        json.dump(frame_map, f, indent=2)
     return meta
 
 
