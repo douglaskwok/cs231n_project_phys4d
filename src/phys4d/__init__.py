@@ -1,38 +1,46 @@
-"""Lightweight physics utilities for the CS231N Phys4D milestone."""
+"""Phys4D utilities (bounce pipeline, poses, optional legacy modules)."""
+
+from .poses import ObjectPose, ObjectPoseTrajectory, load_object_poses_csv
+
+__all__ = [
+    "ObjectPose",
+    "ObjectPoseTrajectory",
+    "load_object_poses_csv",
+]
+
+# Optional modules synced from cs231n_project_phys4d/ for Phase 4+.
+try:
+    from .gaussian_ply import (  # noqa: F401
+        GaussianCloud,
+        load_gaussian_ply,
+        save_gaussian_ply,
+        warp_gaussians_to_frame,
+    )
+
+    __all__ += [
+        "GaussianCloud",
+        "load_gaussian_ply",
+        "save_gaussian_ply",
+        "warp_gaussians_to_frame",
+    ]
+except ImportError:
+    pass
 
 try:
-    from .differentiable_bounce import (
+    from .differentiable_bounce import (  # noqa: F401
         BounceConfig,
         RecoveryResult,
         fit_restitution,
         restitution_from_raw,
         simulate_bounce,
     )
-    from .trajectory_metrics import TrajectorySplitMetrics, fit_restitution_on_train_frames
-except ImportError:
-    BounceConfig = None
-    RecoveryResult = None
-    TrajectorySplitMetrics = None
-    fit_restitution = None
-    fit_restitution_on_train_frames = None
-    restitution_from_raw = None
-    simulate_bounce = None
-from .gaussian_ply import GaussianCloud, load_gaussian_ply, save_gaussian_ply, warp_gaussians_to_frame
-from .poses import ObjectPose, ObjectPoseTrajectory, load_object_poses_csv
 
-__all__ = [
-    "BounceConfig",
-    "GaussianCloud",
-    "ObjectPose",
-    "ObjectPoseTrajectory",
-    "RecoveryResult",
-    "TrajectorySplitMetrics",
-    "fit_restitution",
-    "fit_restitution_on_train_frames",
-    "load_gaussian_ply",
-    "load_object_poses_csv",
-    "restitution_from_raw",
-    "save_gaussian_ply",
-    "simulate_bounce",
-    "warp_gaussians_to_frame",
-]
+    __all__ += [
+        "BounceConfig",
+        "RecoveryResult",
+        "fit_restitution",
+        "restitution_from_raw",
+        "simulate_bounce",
+    ]
+except ImportError:
+    pass

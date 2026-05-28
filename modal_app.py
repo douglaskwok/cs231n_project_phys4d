@@ -19,6 +19,7 @@ Modal:
   modal run modal_app.py --render-4d       # raster MP4 + PNGs (multi-cam + correct time t)
   modal run modal_app.py --render-4d-orbit # horizontal orbit MP4 (novel viewpoints)
   modal run modal_app.py --eval-4d        # PSNR/MAE vs GT (train + test splits)
+  modal run modal_app.py --bounce-phase1  # bounce pipeline phase 1 (4DGS centroid trajectory)
   modal run modal_app.py --upload-batch          # sphere_bounce_batch -> volume
   modal run modal_app.py --extract-perception    # cache states + t=0 visual feats on volume
   modal run modal_app.py --train-visual-dynamics # project.md dynamics (GPU)
@@ -109,6 +110,8 @@ _4dgs_image = (
         "kornia",
         "torchmetrics",
         "torchvision",
+        "scipy",
+        "matplotlib",
     )
     .env({"TORCH_CUDA_ARCH_LIST": "8.6+PTX"})
     .run_commands(
@@ -120,6 +123,11 @@ _4dgs_image = (
         str(REPO_ROOT / "4dgs"),
         remote_path="/repo/4dgs",
         ignore=_ignore_4dgs_mount,
+    )
+    .add_local_dir(
+        str(REPO_ROOT / "src"),
+        remote_path="/repo/src",
+        ignore=["__pycache__", ".DS_Store"],
     )
 )
 
@@ -510,6 +518,74 @@ def render_4d_trajectory(
     image=_4dgs_image,
     gpu="A10G",
     volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 120,
+)
+def bounce_phase1_remote(
+    config_name: str = "room_physics_4dgs_4p0s.yaml",
+    checkpoint_name: str = "chkpnt15000.pth",
+    model_rel: str = "4dgs_sphere_bounce",
+    dynerf_rel: str = "4d_scene",
+    gt_poses_rel: str | None = "bounce_phase1/object_poses.csv",
+    out_rel: str = "bounce_pipeline/phase1",
+) -> str:
+    """Opacity-weighted 4DGS centroids over train timestamps (bounce pipeline phase 1)."""
+    import os
+
+    sys.path.insert(0, "/repo/src")
+    sys.path.insert(0, FOURDGS_SCRIPTS)
+    os.environ["FOURDGS_ROOT"] = "/opt/4dgs"
+
+    from phys4d.bounce.extract import run_phase1
+
+    dynerf = Path("/data") / dynerf_rel.strip("/")
+    if not (dynerf / "transforms_train.json").is_file() and not (
+        dynerf / "frame_map.json"
+    ).is_file():
+        raise FileNotFoundError(
+            f"No DyNeRF export at /data/{dynerf_rel}. "
+            "Upload the same folder used for training (upload_4d_scene_to_modal.py)."
+        )
+
+    model_dir = Path("/outputs") / model_rel.strip("/")
+    ckpt = _pick_4d_checkpoint(model_dir, checkpoint_name)
+
+    cfg = Path(FOURDGS_CONFIGS) / config_name
+    if not cfg.is_file():
+        raise FileNotFoundError(f"Missing config: {cfg}")
+
+    gt_poses: Path | None = None
+    if gt_poses_rel:
+        candidate = Path("/data") / gt_poses_rel.strip("/")
+        if candidate.is_file():
+            gt_poses = candidate
+
+    out_dir = Path("/outputs") / out_rel.strip("/")
+    result = run_phase1(
+        checkpoint=ckpt,
+        config=cfg,
+        dynerf_export=dynerf,
+        out_dir=out_dir,
+        gt_poses=gt_poses,
+        fourd_root=Path("/opt/4dgs"),
+        device="cuda",
+    )
+
+    meta = {
+        "out_dir": str(out_dir),
+        "num_frames": result.num_frames,
+        "checkpoint": str(ckpt),
+        "dynerf_export": str(dynerf),
+        "train_mse_m2": result.train_mse_m2,
+        "train_mse_aligned_m2": result.train_mse_aligned_m2,
+    }
+    output_volume.commit()
+    return json.dumps(meta, indent=2)
+
+
+@app.function(
+    image=_4dgs_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
     timeout=60 * 90,
 )
 def render_4d_multi_trajectory(
@@ -877,6 +953,7 @@ def main(
     render_4d_multi: bool = False,
     render_4d_orbit: bool = False,
     eval_4d: bool = False,
+    bounce_phase1: bool = False,
     upload_batch: bool = False,
     extract_perception: bool = False,
     train_visual_dynamics: bool = False,
@@ -908,6 +985,12 @@ def main(
     orbit_time_start: float | None = None,
     orbit_time_end: float | None = None,
     eval_4d_dry_run_max: int = 0,
+    bounce_phase1_config: str = "room_physics_4dgs_4p0s.yaml",
+    bounce_phase1_model: str = "4dgs_ball_drop_e0p78_a0p0_object_all12_allframes",
+    bounce_phase1_checkpoint: str = "chkpnt15000.pth",
+    bounce_phase1_dynerf_rel: str = "4d_scene",
+    bounce_phase1_gt_poses: str = "",
+    bounce_phase1_out_rel: str = "bounce_pipeline/ball_drop_e0p78_a0p0_object_all12_allframes/phase1",
     frame: int = 0,
     iterations: int = 7000,
 ) -> None:
@@ -1067,6 +1150,48 @@ def main(
         )
         print(
             "Full JSON: modal volume get phys4d-gs-output 4dgs_eval/metrics_4dgs.json . --force"
+        )
+        return
+    if bounce_phase1:
+        if bounce_phase1_gt_poses:
+            gt_local = Path(bounce_phase1_gt_poses).expanduser().resolve()
+            if not gt_local.is_file():
+                raise FileNotFoundError(f"GT poses not found: {gt_local}")
+            subprocess.run(
+                ["modal", "volume", "rm", "phys4d-gs-data", "bounce_phase1", "-r"],
+                check=False,
+            )
+            subprocess.run(
+                [
+                    "modal",
+                    "volume",
+                    "put",
+                    "phys4d-gs-data",
+                    str(gt_local),
+                    "bounce_phase1/object_poses.csv",
+                ],
+                check=True,
+            )
+            print(f"Uploaded {gt_local} -> phys4d-gs-data:/bounce_phase1/object_poses.csv")
+        else:
+            print(
+                "No --bounce-phase1-gt-poses: skipping GT overlay (CSVs/plot without PyBullet GT)."
+            )
+        print(
+            bounce_phase1_remote.remote(
+                config_name=bounce_phase1_config,
+                checkpoint_name=bounce_phase1_checkpoint,
+                model_rel=bounce_phase1_model,
+                dynerf_rel=bounce_phase1_dynerf_rel,
+                gt_poses_rel="bounce_phase1/object_poses.csv"
+                if bounce_phase1_gt_poses
+                else None,
+                out_rel=bounce_phase1_out_rel,
+            )
+        )
+        print(
+            f"Download: modal volume get phys4d-gs-output {bounce_phase1_out_rel} . --force\n"
+            "  Files: trajectory_raw.csv, trajectory_smoothed.csv, trajectory_plot.png, phase1_meta.json"
         )
         return
     if upload_batch:
