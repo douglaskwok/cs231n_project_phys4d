@@ -56,6 +56,32 @@ fps:            60
 sim_hz:         480
 ```
 
+### Wu-Labeled Ball-Drop Export
+
+To prepare a Wu-targeted sibling dataset folder (train/test-aware object exports,
+no `--all-train` leakage), run:
+
+```bash
+phys_sim/bin/python dataset/prepare_ball_drop_wu.py \
+  --drop-invisible-frames
+```
+
+This writes:
+
+```text
+dataset/outputs/phys4d_final/ball_drop_3x3_60fps_wu/
+  wu_dataset_manifest.json
+  scene_000*_*/dynerf_object_wu_train_only/
+    images/
+    transforms_train.json
+    transforms_test.json
+    export_meta.json
+    frame_map.json
+```
+
+Heavy 4DGaussians training and rasterization should run on Modal after this
+export prep step.
+
 The angle is implemented as an approximate first-impact trajectory angle from
 vertical. The exporter computes the required horizontal velocity from the drop
 height while leaving gravity to determine the vertical speed. The ball starts
