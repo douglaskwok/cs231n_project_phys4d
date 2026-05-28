@@ -1,0 +1,3 @@
+[submodule "third_party/4DGaussians"]
+	path = third_party/4DGaussians
+	url = https://github.com/hustvl/4DGaussians
