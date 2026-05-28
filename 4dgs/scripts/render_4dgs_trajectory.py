@@ -172,7 +172,7 @@ def main() -> int:
                 tf_name,
                 lp.white_background,
                 lp.extension,
-                time_duration=None,
+                time_duration=args_ns.time_duration,
                 frame_ratio=lp.frame_ratio,
                 dataloader=lp.dataloader,
             )

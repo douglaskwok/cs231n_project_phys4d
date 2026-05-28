@@ -79,11 +79,17 @@ def cmd_build(args: argparse.Namespace) -> int:
 
     gt_prefix = ""
     if dataset and manifest.get("gt_frames"):
+        gt_dest = out_dir / "ground_truth"
+        if gt_dest.exists() or gt_dest.is_symlink():
+            if gt_dest.is_symlink() or gt_dest.is_file():
+                gt_dest.unlink()
+            else:
+                shutil.rmtree(gt_dest)
         try:
-            rel_ds = Path(os.path.relpath(dataset, out_dir))
-            gt_prefix = f"{rel_ds.as_posix()}/" if rel_ds != Path(".") else ""
-        except ValueError:
-            gt_prefix = ""
+            gt_dest.symlink_to(dataset, target_is_directory=True)
+        except OSError:
+            shutil.copytree(dataset, gt_dest)
+        gt_prefix = "ground_truth/"
 
     html = _build_html(manifest, render_prefix=render_prefix, gt_prefix=gt_prefix)
     index_path = out_dir / "index.html"

@@ -11,6 +11,7 @@ import argparse
 import csv
 import json
 import math
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,7 +50,7 @@ BALL_RADIUS = 0.100
 BALL_MASS = 0.0027
 BALL_START_XY = [0.0, 0.20]
 BALL_SIDE_START_X = 0.35
-BALL_START_HEIGHT_ABOVE_SURFACE = 1.90
+BALL_START_HEIGHT_ABOVE_SURFACE = 0.55
 BALL_INITIAL_ANGULAR_VELOCITY = [0.0, 0.0, 0.0]
 GRAVITY = -9.80665
 BALL_LATERAL_FRICTION = 0.03
@@ -72,6 +73,17 @@ FULL_RESTITUTIONS = [0.87, 0.90, 0.93]
 FULL_BALL_ANGLES_DEG = [-5.0, 0.0, 5.0]
 POC_RESTITUTIONS = [0.90, 0.93]
 POC_BALL_ANGLES_DEG = [0.0, 5.0]
+
+# Known-good object-only 4DGS debug setting from the h0.55 single-scene run.
+# Keep this as the fallback if a camera/framing experiment regresses.
+WORKING_OBJECT_ONLY_BASELINE = {
+    "ball_radius_m": 0.100,
+    "drop_height_above_surface_m": 0.55,
+    "camera_target": TARGET,
+    "camera_distance_scale": 1.0,
+    "camera_fov_scale": 1.0,
+    "video_fps": 60.0,
+}
 
 
 def _ensure_pybullet():
@@ -107,12 +119,37 @@ def _open_mp4_writer(imageio_module, path: Path, *, fps: float = VIDEO_FPS):
     )
 
 
+def _clear_generated_scene_dir(scene_dir: Path) -> None:
+    """Remove stale generated scene contents before rewriting an output scene."""
+
+    if not scene_dir.exists():
+        return
+    shutil.rmtree(scene_dir, ignore_errors=True)
+    if not scene_dir.exists():
+        return
+
+    # macOS can recreate .DS_Store while a directory tree is being removed.
+    # Finish with a conservative bottom-up cleanup so stale frames cannot leak
+    # into a regenerated scene.
+    for child in sorted(scene_dir.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if child.is_dir():
+            child.rmdir()
+        else:
+            child.unlink()
+    scene_dir.rmdir()
+
+
 def _read_camera_csv(path: Path) -> list[dict]:
     with path.open("r", encoding="utf-8", newline="") as f:
         return list(csv.DictReader(f))
 
 
-def _default_camera_rows() -> list[dict]:
+def _default_camera_rows(
+    camera_distance_scale: float = 1.0,
+    camera_target: list[float] | None = None,
+    camera_fov_scale: float = 1.0,
+) -> list[dict]:
+    target = np.array(TARGET if camera_target is None else camera_target, dtype=np.float64)
     rows = []
     ring_radius = 1.75
     for i, name in enumerate(CAMERA_NAMES[:8]):
@@ -173,6 +210,19 @@ def _default_camera_rows() -> list[dict]:
             },
         ]
     )
+    if not math.isclose(camera_distance_scale, 1.0):
+        for row in rows:
+            eye = np.array(
+                [float(row["eye_x"]), float(row["eye_y"]), float(row["eye_z"])],
+                dtype=np.float64,
+            )
+            scaled_eye = target + (eye - target) * camera_distance_scale
+            row["eye_x"] = str(float(scaled_eye[0]))
+            row["eye_y"] = str(float(scaled_eye[1]))
+            row["eye_z"] = str(float(scaled_eye[2]))
+    if not math.isclose(camera_fov_scale, 1.0):
+        for row in rows:
+            row["fov_deg"] = str(float(row["fov_deg"]) * camera_fov_scale)
     return rows
 
 
@@ -265,15 +315,16 @@ def _write_object_poses(src: Path, dst: Path) -> int:
     return len(rows)
 
 
-def _camera_records(camera_rows: list[dict]) -> list[dict]:
+def _camera_records(camera_rows: list[dict], camera_target: list[float] | None = None) -> list[dict]:
     p = _ensure_pybullet()
+    target = TARGET if camera_target is None else camera_target
     records = []
     for idx, row in enumerate(camera_rows):
         name = row["name"]
         eye = [float(row["eye_x"]), float(row["eye_y"]), float(row["eye_z"])]
         up = [float(row["up_x"]), float(row["up_y"]), float(row["up_z"])]
         fov = float(row["fov_deg"])
-        view = p.computeViewMatrix(eye, TARGET, up)
+        view = p.computeViewMatrix(eye, target, up)
         proj = p.computeProjectionMatrixFOV(
             fov=fov,
             aspect=WIDTH / HEIGHT,
@@ -285,7 +336,7 @@ def _camera_records(camera_rows: list[dict]) -> list[dict]:
                 "index": idx,
                 "name": name,
                 "eye_m": eye,
-                "look_at_m": TARGET,
+                "look_at_m": target,
                 "up": up,
                 "fov_deg": fov,
                 "near": 0.02,
@@ -709,6 +760,9 @@ def _simulate_variation_scene(
     video_fps: float,
     sim_hz: float,
     duration_sec: float,
+    camera_distance_scale: float,
+    camera_target_z: float,
+    camera_fov_scale: float,
     render_camera_names: set[str] | None,
     max_frames: int | None,
     overwrite: bool,
@@ -718,6 +772,9 @@ def _simulate_variation_scene(
     p = _ensure_pybullet()
     import imageio.v2 as imageio
     import pybullet_data
+
+    if overwrite:
+        _clear_generated_scene_dir(scene_dir)
 
     steps_per_frame = _steps_per_frame(video_fps, sim_hz)
     client = p.connect(p.DIRECT)
@@ -812,12 +869,17 @@ def _simulate_variation_scene(
         physicsClientId=client,
     )
 
-    camera_rows = _default_camera_rows()
+    camera_target = [TARGET[0], TARGET[1], camera_target_z]
+    camera_rows = _default_camera_rows(
+        camera_distance_scale=camera_distance_scale,
+        camera_target=camera_target,
+        camera_fov_scale=camera_fov_scale,
+    )
     if render_camera_names is not None:
         camera_rows = [row for row in camera_rows if row["name"] in render_camera_names]
         if not camera_rows:
             raise ValueError(f"No cameras selected from: {sorted(render_camera_names)}")
-    camera_records = _camera_records(camera_rows)
+    camera_records = _camera_records(camera_rows, camera_target=camera_target)
     camera_names = [str(cam["name"]) for cam in camera_records]
     if len(camera_records) == len(CAMERA_NAMES):
         camera_layout = "12view_notebook_named_rig"
@@ -1098,6 +1160,9 @@ def generate_variation_dataset(
     video_fps: float,
     sim_hz: float,
     duration_sec: float,
+    camera_distance_scale: float,
+    camera_target_z: float,
+    camera_fov_scale: float,
     render_camera_names: set[str] | None,
     max_frames: int | None,
     overwrite: bool,
@@ -1125,6 +1190,9 @@ def generate_variation_dataset(
             "video_fps": video_fps,
             "sim_hz": sim_hz,
             "duration_sec": duration_sec,
+            "camera_distance_scale": camera_distance_scale,
+            "camera_target_z": camera_target_z,
+            "camera_fov_scale": camera_fov_scale,
             "steps_per_frame": _steps_per_frame(video_fps, sim_hz),
             "render_camera_names": "all" if render_camera_names is None else sorted(render_camera_names),
             "video_camera_names": "all" if video_camera_names is None else sorted(video_camera_names),
@@ -1150,6 +1218,9 @@ def generate_variation_dataset(
             video_fps=video_fps,
             sim_hz=sim_hz,
             duration_sec=duration_sec,
+            camera_distance_scale=camera_distance_scale,
+            camera_target_z=camera_target_z,
+            camera_fov_scale=camera_fov_scale,
             render_camera_names=render_camera_names,
             max_frames=max_frames,
             overwrite=overwrite,
@@ -1178,6 +1249,9 @@ def generate_variation_dataset(
         "video_fps": video_fps,
         "sim_hz": sim_hz,
         "duration_sec": duration_sec,
+        "camera_distance_scale": camera_distance_scale,
+        "camera_target_z": camera_target_z,
+        "camera_fov_scale": camera_fov_scale,
         "steps_per_frame": _steps_per_frame(video_fps, sim_hz),
         "fixed_params": {
             "mass_kg": BALL_MASS,
@@ -1185,6 +1259,10 @@ def generate_variation_dataset(
             "environment": environment,
             "initial_direction": "signed_x_from_ball_angle",
             "drop_height_above_surface_m": BALL_START_HEIGHT_ABOVE_SURFACE,
+            "camera_distance_scale": camera_distance_scale,
+            "camera_target_z": camera_target_z,
+            "camera_fov_scale": camera_fov_scale,
+            "working_object_only_baseline": WORKING_OBJECT_ONLY_BASELINE,
             "table_size_m": [TABLE_LENGTH, TABLE_WIDTH, TABLE_THICKNESS],
             "drag_enabled": False,
         },
@@ -1305,6 +1383,34 @@ def main() -> int:
             f"Default: {DURATION_SEC}."
         ),
     )
+    parser.add_argument(
+        "--camera-distance-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Scale camera eye positions toward the shared look-at target for generated "
+            "variation scenes. Use values below 1.0 to zoom/step in while preserving "
+            "the 12-view layout. Default: 1.0."
+        ),
+    )
+    parser.add_argument(
+        "--camera-target-z",
+        type=float,
+        default=TARGET[2],
+        help=(
+            "Generated-scene camera look-at height in meters. Lower this for low "
+            f"object-only bounces. Default: {TARGET[2]}."
+        ),
+    )
+    parser.add_argument(
+        "--camera-fov-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Scale per-camera FOV for generated variation scenes. Values below "
+            "1.0 zoom in without moving camera positions. Default: 1.0."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     video_camera_names = _parse_video_camera_names(args.video_camera_names)
@@ -1317,6 +1423,10 @@ def main() -> int:
         raise ValueError("--sim-hz must be positive.")
     if args.duration_sec <= 0:
         raise ValueError("--duration-sec must be positive.")
+    if args.camera_distance_scale <= 0:
+        raise ValueError("--camera-distance-scale must be positive.")
+    if args.camera_fov_scale <= 0:
+        raise ValueError("--camera-fov-scale must be positive.")
     _steps_per_frame(args.video_fps, args.sim_hz)
 
     output_dir = args.output_dir
@@ -1335,6 +1445,9 @@ def main() -> int:
             video_fps=args.video_fps,
             sim_hz=args.sim_hz,
             duration_sec=args.duration_sec,
+            camera_distance_scale=args.camera_distance_scale,
+            camera_target_z=args.camera_target_z,
+            camera_fov_scale=args.camera_fov_scale,
             render_camera_names=render_camera_names,
             max_frames=args.max_frames,
             overwrite=not args.no_overwrite,

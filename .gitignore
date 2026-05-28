@@ -255,6 +255,9 @@ pybullet_tabletop_10view.ipynb
 # Generated segmentation and 4DGS run outputs
 /segmentation/**/runs/
 
+# External reference repos cloned for local inspection / Modal image builds
+/external/
+
 # Large generated model artifacts
 *.pth
 *.pt
