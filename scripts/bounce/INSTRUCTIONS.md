@@ -11,14 +11,89 @@ Scope: `phys4d_final` ball-drop scenes with Fudan 4DGS.
 | **1** Trajectory from 4DGS | **Done** | `run_phase1.py`, Modal `--bounce-phase1` |
 | **2** Physics fit | **Done** | `run_phase2.py`, `physics.py` |
 | **3** Held-out extrapolation | **Done** | `run_phase3.py`, `extrapolate.py` |
-| **4** Render predicted poses | **Planned** | No `run_phase4.py` yet |
-| **5** Metrics / eval | **Planned** | No `run_phase5.py` yet |
+| **4** Render predicted poses | **Done** | `run_phase4.py`, `render_compose.py` |
+| **5** Metrics / eval | **Done** | `run_phase5.py`, `metrics.py` |
 
 **Validated split run:** `ball_drop_e0p78_a0p0_object` (scene `scene_0004_e0p78_a0p0`, 60 train + 30 test frames @ 60 fps).
 
-Outputs live under `outputs/bounce_pipeline/<RUN_NAME>/phase{1,2,3}/`.
+Outputs live under `outputs/bounce_pipeline/<RUN_NAME>/phase{1..5}/`.
 
 Spec: [`bouncepipeline.md`](../../bouncepipeline.md).
+
+---
+
+## How to view the latest results
+
+All paths below assume repo root and:
+
+```bash
+export RUN_NAME="ball_drop_e0p78_a0p0_object"
+export OUT="outputs/bounce_pipeline/${RUN_NAME}"
+export SCENE_DIR="dataset/outputs/phys4d_final/ball_drop_3x3_60fps/scene_0004_e0p78_a0p0"
+export EXPORT="4dgs/experiments/object_only/runs/${RUN_NAME}"
+```
+
+**Note:** After Modal Phase 1 download, trajectories often live at  
+`$OUT/phase1/phase1/trajectory_smoothed.csv` (nested `phase1/`), not `$OUT/phase1/trajectory_smoothed.csv`.
+
+### Quick open (macOS Finder)
+
+```bash
+open "$OUT/phase2/physics_fit_plot.png"
+open "$OUT/phase3/trajectory_full_plot.png"
+open "$OUT/phase5/metrics_plot.png"
+open "$OUT/phase4/renders"
+```
+
+### Phase-by-phase artifacts
+
+| Phase | What to open | Path |
+|-------|----------------|------|
+| 1 | Train trajectory + plot | `$OUT/phase1/phase1/trajectory_smoothed.csv`, `trajectory_plot.png` (same folder if flat download) |
+| 2 | Physics fit | `$OUT/phase2/physics_params.json`, `physics_fit_plot.png` |
+| 3 | Held-out prediction | `$OUT/phase3/trajectory_predicted.csv`, `trajectory_full_plot.png`, `phase3_meta.json` |
+| 4 | Predicted renders (PNG) | `$OUT/phase4/renders/*.png` |
+| 5 | Scores | `$OUT/phase5/metrics.json`, `metrics_plot.png` |
+
+Tuning variants (if you ran `phase2_tune_*`, etc.) use the same layout, e.g. `$OUT/phase4_tune_a/renders`, `$OUT/phase5_tune_a/metrics.json`.
+
+### Interactive viewer (recommended for Phase 4)
+
+Build once (or rebuild after new renders):
+
+```bash
+python 4dgs/scripts/view_4dgs_time.py build \
+  --render-dir "$OUT/phase4/renders" \
+  --dataset "$EXPORT" \
+  --out "$OUT/phase4/viewer"
+```
+
+Serve (images load reliably vs `file://`):
+
+```bash
+python 4dgs/scripts/view_4dgs_time.py serve \
+  --dir "$OUT/phase4/viewer" \
+  --open
+```
+
+Controls: time slider, camera dropdown, play/spacebar, optional GT side-by-side (needs `--dataset` with `images/`).
+
+**What you see in Phase 4 today:** masked scene background + soft red predicted Gaussian splat (not full object+background 3DGS raster yet). One ball only if GT ball was masked out.
+
+### Compare to ground truth video
+
+```bash
+open "$SCENE_DIR/videos/rgb/cam10_front.mp4"   # example test camera
+open "$SCENE_DIR/rgb/cam10/frame00060.png"     # single frame
+```
+
+### Metrics at a glance
+
+```bash
+python -m json.tool "$OUT/phase5/metrics.json"
+```
+
+Key fields: `trajectory.pos_rmse_m`, `trajectory.vel_r2`, `render.psnr_db_mean`, `render.mae_mean`.
 
 ---
 
@@ -196,34 +271,44 @@ Checks:
 
 ---
 
-## 4) Phase 4 — Render predicted trajectory (planned)
+## 4) Phase 4 — Render predicted trajectory (implemented)
 
-Goal: Render held-out views with predicted object positions (rigid translation of canonical Gaussians).
+Goal: Held-out test views with predicted ball position overlaid on scene RGB.
 
-Status: not implemented as `run_phase4.py`.
+Outputs:
 
-Blockers: background 3DGS + warp/render glue.
+- `phase4/renders/<seq>_cam<idx>_<frame>.png`
+- `phase4_meta.json` (`projection_mode`, `render_style`, etc.)
+- optional `phase4/viewer/` (from `view_4dgs_time.py`)
 
-Intended inputs:
+```bash
+python scripts/bounce/run_phase4.py \
+  --predicted "$OUT/phase3/trajectory_predicted.csv" \
+  --dynerf-export "$EXPORT" \
+  --scene-dir "$SCENE_DIR" \
+  --out "$OUT/phase4" \
+  --render-style gaussian_splat
+```
 
-- canonical object checkpoint / PLY
-- `phase3/trajectory_predicted.csv`
-- DyNeRF `transforms_test.json`
-- background model
+See **How to view the latest results** above for the viewer.
 
 ---
 
-## 5) Phase 5 — Evaluate trajectory/render quality (planned)
+## 5) Phase 5 — Evaluate trajectory/render quality (implemented)
 
-Goal: Score prediction and rendering on held-out frames.
+Goal: Held-out trajectory + render metrics vs GT.
 
-Status: not implemented as `run_phase5.py`.
+Outputs: `metrics.json`, `metrics_plot.png`
 
-Intended metrics:
-
-- trajectory RMSE vs `object_poses.csv`
-- velocity/acceleration consistency
-- render PSNR/MAE (reuse `modal_app.py --eval-4d` patterns)
+```bash
+python scripts/bounce/run_phase5.py \
+  --predicted "$OUT/phase3/trajectory_predicted.csv" \
+  --gt-poses "$SCENE_DIR/object_poses.csv" \
+  --rendered "$OUT/phase4/renders" \
+  --gt-rgb-root "$SCENE_DIR/rgb" \
+  --out "$OUT/phase5" \
+  --fps 60
+```
 
 ---
 
@@ -243,5 +328,9 @@ For ~2 bounces in train and ~2 in test at 60 fps:
 | Phase 1 | `src/phys4d/bounce/load_4dgs.py`, `extract.py`, `scripts/bounce/run_phase1.py` |
 | Phase 2 | `src/phys4d/bounce/physics.py`, `scripts/bounce/run_phase2.py` |
 | Phase 3 | `src/phys4d/bounce/extrapolate.py`, `scripts/bounce/run_phase3.py` |
+| Phase 4 | `src/phys4d/bounce/render_compose.py`, `scripts/bounce/run_phase4.py` |
+| Phase 5 | `src/phys4d/bounce/metrics.py`, `scripts/bounce/run_phase5.py` |
+| Viewer | `4dgs/scripts/view_4dgs_time.py` |
 | Modal Phase 1 | `modal_app.py` → `bounce_phase1_remote` |
 | Spec | `bouncepipeline.md` |
+| **View results** | **This file — section “How to view the latest results”** |

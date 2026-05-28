@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import least_squares
 
+from phys4d.poses import load_object_poses_csv
+
 
 @dataclass(frozen=True)
 class PhysicsParams:
@@ -180,6 +182,9 @@ def fit_physics_params(
     obs: np.ndarray,
     *,
     fix_gravity: bool = False,
+    robust_loss: str = "soft_l1",
+    f_scale: float = 0.05,
+    max_nfev: int = 1200,
 ) -> tuple[PhysicsParams, np.ndarray, float]:
     """Least-squares fit for (p0, v0, g, e, z_g)."""
 
@@ -229,7 +234,9 @@ def fit_physics_params(
         x0=x0,
         bounds=(lower, upper),
         method="trf",
-        max_nfev=400,
+        loss=robust_loss,
+        f_scale=float(f_scale),
+        max_nfev=int(max_nfev),
     )
 
     x = fit.x
@@ -293,6 +300,10 @@ def run_phase2(
     out_dir: Path,
     fps: float | None = None,
     fix_gravity: bool = False,
+    gt_poses_csv: Path | None = None,
+    align_translation_to_gt: bool = False,
+    robust_loss: str = "soft_l1",
+    robust_f_scale: float = 0.05,
 ) -> Phase2Result:
     """Fit phase-2 physics parameters and write JSON + plot outputs."""
 
@@ -300,13 +311,44 @@ def run_phase2(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     frames, times, obs = load_trajectory_csv(trajectory_csv)
+    obs_for_fit = obs.copy()
+    alignment_translation = np.zeros(3, dtype=np.float64)
+    alignment_mse_before: float | None = None
+    alignment_mse_after: float | None = None
+
+    if align_translation_to_gt:
+        if gt_poses_csv is None:
+            raise ValueError("--align-translation-to-gt requires gt_poses_csv")
+        gt_traj = load_object_poses_csv(gt_poses_csv.resolve())
+        gt = np.stack([gt_traj.by_frame(int(f)).position for f in frames.tolist()], axis=0)
+        alignment_translation = np.mean(gt - obs_for_fit, axis=0)
+        alignment_mse_before = float(np.mean(np.sum((obs_for_fit - gt) ** 2, axis=1)))
+        obs_for_fit = obs_for_fit + alignment_translation[None, :]
+        alignment_mse_after = float(np.mean(np.sum((obs_for_fit - gt) ** 2, axis=1)))
     if fps is None:
         # Infer fps from timestamps when the caller does not pass it explicitly.
         dt = np.median(np.diff(times))
         fps = float(1.0 / max(dt, 1e-9))
 
-    bounces = detect_bounces(times, obs[:, 2])
-    params, pred, mse = fit_physics_params(times, obs, fix_gravity=fix_gravity)
+    bounces = detect_bounces(times, obs_for_fit[:, 2])
+    params, pred_fit_space, mse = fit_physics_params(
+        times,
+        obs_for_fit,
+        fix_gravity=fix_gravity,
+        robust_loss=robust_loss,
+        f_scale=robust_f_scale,
+    )
+    # Convert parameters/trajectory back to the original trajectory space when fit
+    # used translation-aligned observations.
+    if align_translation_to_gt:
+        params = PhysicsParams(
+            p0=params.p0 - alignment_translation,
+            v0=params.v0.copy(),
+            gravity_z=float(params.gravity_z),
+            restitution=float(params.restitution),
+            ground_z=float(params.ground_z - alignment_translation[2]),
+        )
+    pred = pred_fit_space - alignment_translation[None, :]
 
     params_json = out_dir / "physics_params.json"
     fit_plot_png = out_dir / "physics_fit_plot.png"
@@ -319,6 +361,8 @@ def run_phase2(
         "frame_start": int(frames[0]),
         "frame_end": int(frames[-1]),
         "fix_gravity": bool(fix_gravity),
+        "robust_loss": robust_loss,
+        "robust_f_scale": float(robust_f_scale),
         "bounce_count": len(bounces),
         "bounces": [
             {
@@ -335,6 +379,12 @@ def run_phase2(
             "gravity_z_m_s2": float(params.gravity_z),
             "restitution": float(params.restitution),
             "ground_z_m": float(params.ground_z),
+        },
+        "fit_alignment": {
+            "enabled": bool(align_translation_to_gt),
+            "translation_xyz_m": alignment_translation.tolist(),
+            "mse_before_m2": alignment_mse_before,
+            "mse_after_m2": alignment_mse_after,
         },
     }
     params_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

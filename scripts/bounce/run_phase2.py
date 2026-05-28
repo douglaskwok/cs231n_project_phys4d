@@ -40,6 +40,29 @@ def main() -> int:
         action="store_true",
         help="Fix gravity to -9.81 m/s^2 instead of fitting it.",
     )
+    parser.add_argument(
+        "--gt-poses",
+        type=Path,
+        default=None,
+        help="Optional GT object_poses.csv for translation alignment before fitting.",
+    )
+    parser.add_argument(
+        "--align-translation-to-gt",
+        action="store_true",
+        help="Align trajectory to GT by a single xyz translation before fitting.",
+    )
+    parser.add_argument(
+        "--robust-loss",
+        choices=("linear", "soft_l1", "huber", "cauchy", "arctan"),
+        default="soft_l1",
+        help="Robust least-squares loss to stabilize noisy trajectory fits.",
+    )
+    parser.add_argument(
+        "--robust-f-scale",
+        type=float,
+        default=0.05,
+        help="Scale parameter for robust loss.",
+    )
     args = parser.parse_args()
 
     result = run_phase2(
@@ -47,6 +70,10 @@ def main() -> int:
         out_dir=args.out,
         fps=args.fps,
         fix_gravity=args.fix_gravity,
+        gt_poses_csv=args.gt_poses,
+        align_translation_to_gt=args.align_translation_to_gt,
+        robust_loss=args.robust_loss,
+        robust_f_scale=args.robust_f_scale,
     )
     print(f"Phase 2 complete -> {result.out_dir}")
     print(f"  params: {result.params_json}")

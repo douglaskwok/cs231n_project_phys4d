@@ -8,7 +8,7 @@
 
 **4DGS backend:** [fudan-zvg/4d-gaussian-splatting](https://github.com/fudan-zvg/4d-gaussian-splatting) (ICLR 2024) — same as Modal `--train-4d` / `--render-4d`. Not Wu et al. 4DGaussians.
 
-**Status:** Phases 1–3 implemented (`run_phase1.py` … `run_phase3.py`); Phases 4–5 pending. See [Current progress](#current-progress) and [Reuse vs build](#reuse-vs-build).
+**Status:** Phases 1–5 implemented (`run_phase1.py` … `run_phase5.py`). See [Current progress](#current-progress), [Reuse vs build](#reuse-vs-build), and **[scripts/bounce/INSTRUCTIONS.md](scripts/bounce/INSTRUCTIONS.md)** (“How to view the latest results”).
 
 Related docs: [`dataset/README.md`](dataset/README.md) (datagen), [`4dgs/README.md`](4dgs/README.md) (train/render), [`docs/PROGRESS.md`](docs/PROGRESS.md) (team log).
 
