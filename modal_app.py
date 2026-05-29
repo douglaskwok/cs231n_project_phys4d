@@ -600,6 +600,7 @@ def render_4d_orbit_job(
     orbit_frames: int = 180,
     orbit_time_start: float | None = None,
     orbit_time_end: float | None = None,
+    model_rel: str = "4dgs_sphere_bounce",
 ) -> str:
     """Novel horizontal orbit (intrinsics from dataset JSON); time sweeps along bounce range."""
     import shutil
@@ -612,7 +613,7 @@ def render_4d_orbit_job(
             "No 4D scene at /data/4d_scene. Run: modal run modal_app.py --upload-4d"
         )
 
-    model_dir = Path("/outputs/4dgs_sphere_bounce")
+    model_dir = Path("/outputs") / model_rel
     ckpt = _pick_4d_checkpoint(model_dir, checkpoint_name)
 
     cfg_src = Path(FOURDGS_CONFIGS) / config_name
@@ -687,7 +688,7 @@ def eval_4dgs_metrics_remote(
             "No 4D scene at /data/4d_scene. Run: modal run modal_app.py --upload-4d"
         )
 
-    model_dir = Path("/outputs/4dgs_sphere_bounce")
+    model_dir = Path("/outputs") / model_rel
     ckpt = _pick_4d_checkpoint(model_dir, checkpoint_name)
 
     cfg_src = Path(FOURDGS_CONFIGS) / config_name
@@ -1045,6 +1046,7 @@ def main(
         print(
             render_4d_orbit_job.remote(
                 config_name=render_4d_config,
+                model_rel=render_4d_model,
                 checkpoint_name=render_4d_checkpoint,
                 fps=render_fps,
                 orbit_frames=orbit_frames,
