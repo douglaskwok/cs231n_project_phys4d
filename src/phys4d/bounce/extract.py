@@ -193,15 +193,6 @@ def plot_trajectory(
         ax.plot(t, smoothed[:, axis], "-", lw=2, label="smoothed")
         if gt is not None:
             ax.plot(t, gt[:, axis], "--", lw=1.5, alpha=0.8, label="GT PyBullet")
-        if gt_aligned is not None:
-            ax.plot(
-                t,
-                gt_aligned[:, axis],
-                ":",
-                lw=1.5,
-                alpha=0.8,
-                label="GT (Procrustes to raw)",
-            )
         ax.set_ylabel(f"{name} (m)")
         ax.grid(True, alpha=0.3)
     axes[-1].set_xlabel("time (s)")

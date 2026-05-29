@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,28 @@ except Exception:  # pragma: no cover - fallback for lightweight envs
 
 
 _CAM_FRAME_RE = re.compile(r"cam(\d+)_(\d+)$")
+
+
+def _frame_intrinsics(
+    frame_rec: dict,
+    *,
+    fl_x: float,
+    fl_y: float,
+    cx: float,
+    cy: float,
+) -> tuple[float, float, float, float]:
+    """Resolve per-frame intrinsics, falling back to the shared top-level block.
+
+    Different rig cameras can have different FoV, so each transforms frame may carry
+    its own fl_x/fl_y/cx/cy. Older exports without per-frame keys use the shared set.
+    """
+
+    return (
+        float(frame_rec.get("fl_x", fl_x)),
+        float(frame_rec.get("fl_y", fl_y)),
+        float(frame_rec.get("cx", cx)),
+        float(frame_rec.get("cy", cy)),
+    )
 
 
 @dataclass(frozen=True)
@@ -301,13 +324,16 @@ def _calibrate_projection_mode(
             if centroid is None:
                 continue
             c2w = np.asarray(frame_rec["transform_matrix"], dtype=np.float64)
+            f_fx, f_fy, f_cx, f_cy = _frame_intrinsics(
+                frame_rec, fl_x=fl_x, fl_y=fl_y, cx=cx, cy=cy
+            )
             u, v, _ = _project_with_mode(
                 pred,
                 c2w,
-                fl_x=fl_x,
-                fl_y=fl_y,
-                cx=cx,
-                cy=cy,
+                fl_x=f_fx,
+                fl_y=f_fy,
+                cx=f_cx,
+                cy=f_cy,
                 width=width,
                 height=height,
                 projection_mode=mode,
@@ -319,6 +345,40 @@ def _calibrate_projection_mode(
             err = float(np.mean(errors))
             if err < best_error:
                 best_error = err
+                best_mode = mode
+    # Without GT masks we cannot calibrate from centroids; pick the convention that
+    # projects the most predicted points into the image (common when z is flipped).
+    if not math.isfinite(best_error):
+        best_mode = "opencv"
+        best_valid = -1
+        for mode in modes:
+            valid = 0
+            for frame_rec in frames:
+                cam_idx, frame_idx = _parse_cam_frame_from_file_path(
+                    str(frame_rec["file_path"])
+                )
+                pred = predicted.get(frame_idx)
+                if pred is None:
+                    continue
+                c2w = np.asarray(frame_rec["transform_matrix"], dtype=np.float64)
+                f_fx, f_fy, f_cx, f_cy = _frame_intrinsics(
+                    frame_rec, fl_x=fl_x, fl_y=fl_y, cx=cx, cy=cy
+                )
+                u, v, _ = _project_with_mode(
+                    pred,
+                    c2w,
+                    fl_x=f_fx,
+                    fl_y=f_fy,
+                    cx=f_cx,
+                    cy=f_cy,
+                    width=width,
+                    height=height,
+                    projection_mode=mode,
+                )
+                if np.isfinite(u) and np.isfinite(v) and 0.0 <= u < width and 0.0 <= v < height:
+                    valid += 1
+            if valid > best_valid:
+                best_valid = valid
                 best_mode = mode
     return best_mode
 
@@ -397,13 +457,16 @@ def run_phase4(
             )
 
         c2w = np.asarray(frame_rec["transform_matrix"], dtype=np.float64)
+        f_fx, f_fy, f_cx, f_cy = _frame_intrinsics(
+            frame_rec, fl_x=fl_x, fl_y=fl_y, cx=cx, cy=cy
+        )
         u, v, depth = _project_with_mode(
             pred,
             c2w,
-            fl_x=fl_x,
-            fl_y=fl_y,
-            cx=cx,
-            cy=cy,
+            fl_x=f_fx,
+            fl_y=f_fy,
+            cx=f_cx,
+            cy=f_cy,
             width=img_w,
             height=img_h,
             projection_mode=projection_mode,
@@ -413,7 +476,7 @@ def run_phase4(
             continue
 
         # Scale the projected marker using depth and known sphere radius.
-        radius_px = int(round(max(2.0, (fl_x * float(sphere_radius_m)) / depth)))
+        radius_px = int(round(max(2.0, (f_fx * float(sphere_radius_m)) / depth)))
         if render_style == "gaussian_splat":
             composed = _draw_gaussian_splat(
                 background,
