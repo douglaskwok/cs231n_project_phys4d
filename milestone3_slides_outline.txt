@@ -1,0 +1,290 @@
+================================================================================
+MILESTONE 3 — PRELIMINARY RESULTS (May 29)
+What to include in the slide deck
+Project: 4D Scene Reconstruction for Physics-Aware Object Trajectory using
+         Gaussian Splatting  (Kwok, Casper, Purkar — CS231N)
+================================================================================
+
+This file maps (a) what we promised in Milestone 2, against (b) what is actually
+working now, and turns that into a concrete slide-by-slide plan that targets the
+three M3 grading criteria: Progress, Clarity, Robustness.
+
+All numbers below are from the "big ball" scene
+(wu_debug_ball_huge_120fps_0p5s / scene_0000_e0p90_a0p0), held-out frames 41-60
+(20 frames = the second-half / 20% test split), evaluated over all 12 cameras.
+
+
+--------------------------------------------------------------------------------
+0. ONE-LINE STORY (put this on the title / first results slide)
+--------------------------------------------------------------------------------
+"We can now do the one thing no baseline does: extrapolate an object's trajectory
+ beyond the observed video. Fitting closed-form physics (not a network) to the
+ 4DGS-extracted trajectory predicts the held-out second half to sub-centimeter
+ accuracy (8.6 mm RMSE, velocity R^2 = 0.997)."
+
+This is exactly the headline contribution claimed in M2 slide 6, now demonstrated
+with quantitative held-out results.
+
+
+--------------------------------------------------------------------------------
+1. PIPELINE RECAP (1 slide) — reuse the M2 slide-3 pipeline figure
+--------------------------------------------------------------------------------
+Show the same 5-stage figure from Milestone 2 and color each stage by status:
+
+  1. Video input (PyBullet, multi-view)         ...... DONE (teammate)
+  2. Object segmentation (SAM2) -> obj/bg split  ...... DONE (teammate)
+  3. 4D reconstruction (Wu et al. 4DGS, object)  ...... DONE (per scene)
+  4. Trajectory estimation & extrapolation [OURS]...... DONE  <-- new since M2
+  5. Rebuild scene (object + background) [OURS]  ...... PARTIAL (overlay done;
+                                                        real Gaussian composite
+                                                        pending bg-3DGS + GPU)
+  6. Evaluation (trajectory + render metrics)    ...... DONE for trajectory;
+                                                        render metric = overlay
+
+Key point for the audience: Step 4 (our core contribution) is finished and
+validated. That is the new progress since Milestone 2, where Step 4 was only
+"planned (early week 9)".
+
+
+--------------------------------------------------------------------------------
+2. RESULTS SLIDE A — TRAJECTORY EXTRAPOLATION (the headline)
+--------------------------------------------------------------------------------
+Figure: trajectory_full_plot — x/y/z vs time, showing
+   - observed/train window (frames 0-40), 
+   - our physics prediction on held-out window (frames 41-60),
+   - PyBullet ground truth overlaid.
+(We already generate per-axis trajectory plots; use the z-axis one to show the
+ bounce being predicted correctly past the train boundary.)
+
+Quantitative table (held-out frames, vs PyBullet GT):
+
+   Metric                         Our result        M3 target        Pass?
+   -------------------------------------------------------------------------
+   Position RMSE                  0.0086 m (8.6 mm)  < 0.05 m         YES
+   Velocity R^2                   0.997              > 0.9            YES
+   Acceleration R^2               0.99998            (n/a)           YES
+
+Fitted physics parameters (Step 4b) — emphasize these are INTERPRETABLE and
+recovered, not learned weights:
+
+   Parameter            Fitted        Ground truth      Comment
+   -------------------------------------------------------------------------
+   Coefficient of rest. e   0.859     0.90              within ~5%
+   Gravity g            -9.81 (fixed) -9.81             held fixed first run
+   Ground height z_g     0.429 m      (table top)       physically plausible
+   Fit MSE (train)       3.4e-5 m^2   < 0.01 m^2        well under target
+
+Takeaway line: "The fit recovers the true restitution to within 5% and predicts
+the held-out bounce to sub-cm accuracy."
+
+
+--------------------------------------------------------------------------------
+3. RESULTS SLIDE B — RENDERING / SCENE REBUILD (be honest about the stage)
+--------------------------------------------------------------------------------
+Show 2-3 side-by-side frames: our rendered held-out frame vs PyBullet GT frame,
+from a couple of the 12 cameras (we have an interactive multi-view viewer that
+scrubs all 12 POVs across the test window).
+
+Current render metric (held-out, all 12 cameras, 2D-overlay compositing):
+   PSNR  = 11.1 dB     (M3 target > 25 dB)   -> NOT YET MET
+   MAE   = 0.19
+   SSIM  = not yet computed
+
+IMPORTANT framing (this is a Robustness point, not a failure):
+The low PSNR is EXPECTED and is a property of the current *visualization*, not
+the prediction. Step 5 today draws the predicted ball as a 2D Gaussian-splat
+marker composited on the real background, rather than rasterizing the object's
+3D Gaussians over a learned background 3DGS. The trajectory (what we actually
+predict) is correct; the appearance pipeline is the part still in progress.
+Per our own M3 plan, the headline contribution is the trajectory, with a
+trajectory-overlay fallback explicitly allowed if photoreal compositing is rough.
+
+
+--------------------------------------------------------------------------------
+4. COMPARISON / BASELINES SLIDE — reuse M2 slide-6 capability matrix
+--------------------------------------------------------------------------------
+Reuse the capability table from Milestone 2 and add a "now demonstrated" mark:
+
+   Method            Recon   Phys.    Non-rigid   Trajectory
+                     quality plaus.   deformable  PREDICTION
+   ----------------------------------------------------------------
+   4DGS (Wu 2024)    yes     no       yes         no
+   PhysGaussian      yes     yes      partial     no
+   GASP              yes     partial  yes         no
+   OURS (hybrid)     yes*    yes      (rigid)     YES  <-- shown, 8.6mm RMSE
+
+Add a concrete baseline contrast to make the comparison quantitative:
+   - "4DGS alone": the Wu deformation field is only defined on the observed time
+     range [0,1]; querying it past the train window does not produce a valid
+     future bounce (it clamps / degenerates) -> we model this as "freeze last
+     observed centroid". Show this as the "what a pure 4DGS baseline does beyond
+     the video" failure, next to our correct prediction.
+   - constant-velocity and ballistic-without-bounce extrapolation from the
+     train/test boundary -> both diverge, while our global physics fit tracks GT.
+
+MEASURED BASELINE RESULTS (held-out frames 41-60, vs PyBullet GT).
+All baselines start from the SAME boundary state derived only from the observed
+4DGS trajectory -> no GT leakage. Lower RMSE / higher R^2 = better.
+(script: scripts/bounce/baseline_compare.py; per-scene outputs under
+ outputs/bounce_pipeline/<scene>/baselines/)
+
+  BIG BALL (r=0.35)            Pos RMSE (m)   vel R^2     acc R^2
+  ----------------------------------------------------------------
+  4DGS-only (freeze)              0.0359       0.00        0.00
+  Constant velocity               0.0859       0.47        0.00
+  Ballistic (no bounce)           0.0185       0.96        1.00
+  OURS (physics fit)              0.0086       0.997       1.00     <-- best
+
+  SMALL BALL (r=0.20)          Pos RMSE (m)   vel R^2     acc R^2
+  ----------------------------------------------------------------
+  4DGS-only (freeze)              0.0746       0.00        0.00
+  Constant velocity               0.2080       0.66        0.04
+  Ballistic (no bounce)           0.1476       0.87        1.00
+  OURS (physics fit)              0.0382       0.93        1.00     <-- best
+
+Two slide-ready takeaways:
+  - Big ball: ours = 0.86 cm, ~2x better than gravity-only, ~4x better than the
+    pure-4DGS freeze, ~10x better than constant velocity. (Figure: z-vs-time
+    overlay where "ours" sits on top of GT and the baselines fan away.)
+  - Small ball: the naive boundary extrapolators BLOW UP (const-vel 20.8 cm,
+    ballistic 14.8 cm -- worse than doing nothing) because the 4DGS centroid
+    jitter corrupts the boundary velocity estimate. Our GLOBAL fit over the whole
+    train window is robust to that jitter (3.8 cm). This is the strongest
+    robustness argument in the deck: fitting the whole trajectory > rolling
+    forward from a single noisy state.
+
+Figures to drop in: 
+  outputs/bounce_pipeline/wu_debug_ball_huge_120fps_0p5s/baselines/compare_plot.png
+  outputs/bounce_pipeline/wu_debug_ball_r0p20_120fps_0p5s/baselines/compare_plot.png
+
+
+--------------------------------------------------------------------------------
+5. ANALYSIS / INSIGHTS SLIDE (directly targets the Robustness criterion)
+--------------------------------------------------------------------------------
+What works:
+  - Opacity-weighted centroid from the Wu 4DGS gives a clean trajectory inside
+    the train window.
+  - Decoupling reconstruction from prediction (extract -> fit closed-form physics
+    -> roll forward) is robust: Steps 4b/4c are pure NumPy/scipy, backend-agnostic,
+    and the constant 4DGS-vs-PyBullet world-frame offset cancels out in pose deltas.
+  - Multi-view evaluation: we render/score all 12 cameras (added per-camera
+    intrinsics so cameras with different FoV project correctly). Evaluating more
+    POVs is NOT leakage — the prediction is a single camera-independent 3D point;
+    cameras are only projection targets. The held-out axis that matters is TIME.
+
+What doesn't (yet):
+  - x/y "wobble" in the extracted trajectory: the 4DGS used here was a 5k-iteration
+    debug run; the non-rigid deformation introduces small lateral jitter. Robust
+    centroid estimators (median/trim) reduce but don't fully remove it. Root-cause
+    fix = train 4DGS longer (30k).
+  - Render appearance: real Gaussian compositing not yet run end-to-end (needs a
+    background 3DGS asset + a CUDA rasterizer on GPU).
+
+Design choices we can justify if asked:
+  - Wu et al. 4DGS chosen specifically because "freeze canonical + rigidly warp by
+    physics" is essentially free with its canonical+deformation architecture.
+  - We fit transformation/physics parameters instead of a network -> interpretable,
+    cheap, and the whole point of the contribution.
+  - No rotation applied to the object Gaussians: GT quaternions are identity for
+    this non-spinning ball, so translation-only is correct here.
+
+
+--------------------------------------------------------------------------------
+6. LIMITATIONS SLIDE
+--------------------------------------------------------------------------------
+  - Single scene / single variant shown so far; generalization across restitution
+    and drop-angle variants not yet tabulated.
+  - 4DGS reconstruction is a short (5k-iter) debug run -> trajectory wobble; not
+    yet the 30k production quality.
+  - Scene rebuild (Step 5) is currently a 2D overlay, so PSNR/SSIM are not
+    representative of the eventual photoreal composite; background 3DGS missing.
+  - Frame rate is a temporary 120 FPS scaffold (M2 noted intent to drop to 30/60).
+  - Rigid-sphere assumption; collision/stacking/deformable generalization untested.
+
+
+--------------------------------------------------------------------------------
+7. NEXT STEPS SLIDE (this is also the "ideal implementation" plan, below)
+--------------------------------------------------------------------------------
+  1. Train a static background 3DGS (inverted object mask) -> background.ply.
+  2. Run the real Step 5 Gaussian compositing on GPU (Modal): translate the
+     object's canonical Gaussians by the predicted per-frame delta, concatenate
+     with the background 3DGS, rasterize the held-out cameras -> report PSNR/SSIM.
+  3. Retrain Wu 4DGS to 30k iterations to remove the x/y wobble.
+  4. Sweep multiple variants (restitution, drop angle) -> generalization table.
+  5. Add the quantitative baselines (4DGS-only-no-extrapolation; constant-velocity)
+     for an apples-to-apples comparison slide.
+  6. Drop FPS back to 30/60 once the full pipeline is validated.
+
+
+================================================================================
+APPENDIX A — "IDEAL IMPLEMENTATION": what is missing and exactly how to get it
+================================================================================
+The wu-pred branch already contains the ideal Step 5 renderer (run_step5 in
+src/phys4d/bounce/render_compose.py): it translates the canonical OBJECT
+Gaussians by (p_pred - p_ref), merges them with a background Gaussian PLY, and
+rasterizes via the Wu CUDA renderer (render_merged_ply_wu, stage="coarse" so the
+deformation field is NOT re-applied -> no double motion). gaussian_ply.py provides
+load/translate/merge/save helpers. So the CODE for the ideal path exists; the gaps
+are ASSETS and COMPUTE:
+
+  GAP 1 — Background 3DGS asset (MISSING).
+    There is no background_3dgs/background.ply for this scene. Train a static
+    3DGS of the room using the inverted ball mask (multi-view), or a single frame
+    with the ball out of view. (Modal: train_gs / graphdeco 3DGS at /opt/gs.)
+
+  GAP 2 — Object canonical PLY (HAVE IT).
+    The Wu run is object-only ("..._wu_object"); canonical PLY is at
+    .../4dgs_wu/..._wu_object/.../point_cloud/iteration_5000/point_cloud.ply
+    plus deformation.pth and cfg_args. (Consider re-training to iteration_30000.)
+
+  GAP 3 — CUDA rasterizer (NEEDS GPU).
+    diff_gaussian_rasterization is NOT importable locally and this Mac has no
+    CUDA. Step 5 must run on Modal (A10G). The Wu submodules
+    (depth-diff-gaussian-rasterization, simple-knn) must be initialized/built in
+    the GPU image. Without it, run_step5 falls back to the 2D overlay (current).
+
+  GAP 4 — Wire it end-to-end with the stepN scripts.
+    The big-ball results currently live under the older fudan "phaseN" output
+    layout. The wu-pred milestone3 scripts are step4a_extract / step4b_fit /
+    step4c_predict / step5_render / step6_eval. The existing predicted trajectory
+    CSV is reusable; mainly need step5_render (on GPU, with --bg-ply and
+    --cfg-args) then step6_eval for PSNR/SSIM.
+
+  Command sketch for the real render (run on Modal GPU):
+    python scripts/bounce/step5_render.py \
+      --canonical <.../point_cloud/iteration_30000/point_cloud.ply> \
+      --bg-ply    <.../background_3dgs/background.ply> \
+      --predicted <OUT>/step4c/trajectory_predicted.csv \
+      --ref-traj  <OUT>/step4a/trajectory_smoothed.csv \
+      --dynerf-export <EXPORT_with_transforms_test.json> \
+      --cfg-args  <.../cfg_args> \
+      --out <OUT>/step5
+    python scripts/bounce/step6_eval.py \
+      --predicted ... --gt-poses ... --rendered <OUT>/step5/renders \
+      --gt-rgb-root <SCENE>/rgb --out <OUT>/step6
+
+
+================================================================================
+APPENDIX B — STATUS OF THE BIG-BALL RUN (sanity check performed)
+================================================================================
+  - Trajectory + physics + extrapolation outputs intact (phase1..phase3).
+  - phase5 trajectory metrics intact: RMSE 8.6 mm, vel R^2 0.997, acc R^2 0.99998.
+  - Interactive multi-view viewer serving all 12 POVs of the held-out window
+    (local HTTP, currently up).
+  - Caveat: the fudan phase4/renders dir accumulated stale frames across reruns
+    (40 + 240 = 280 PNGs). Re-render into a clean dir before quoting render counts.
+
+
+================================================================================
+APPENDIX C — MAPPING TO M3 GRADING CRITERIA (use this as a checklist)
+================================================================================
+  PROGRESS (1%)  : Step 4 done; held-out quantitative results (RMSE, R^2);
+                   interpretable recovered physics params. Clear advance over M2.
+  CLARITY  (1%)  : Reuse M2 pipeline + capability figures with status coloring;
+                   one results table for trajectory, one comparison table,
+                   side-by-side render vs GT frames.
+  ROBUSTNESS(1%) : Validate against GT with proper held-out split; explain why
+                   PSNR is low (overlay, not the prediction); justify design
+                   choices (Wu backend, closed-form fit, no rotation, multi-view
+                   not leakage); list limitations + concrete next steps.
+================================================================================
