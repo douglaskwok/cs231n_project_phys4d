@@ -61,6 +61,10 @@ SCENARIO_DEFAULTS = {
 
 COLLISION_TABLE_TOP_Z = 0.35
 COLLISION_OBJECT_HALF_EXTENTS_M = [0.120, 0.120, 0.050]
+COLLISION_WALL_HALF_X = 0.80        # end wall center x (objects bounce along x-axis)
+COLLISION_WALL_HALF_Y = 0.20        # side wall center y (keeps motion 1D)
+COLLISION_WALL_HALF_THICKNESS = 0.015
+COLLISION_WALL_HALF_HEIGHT = 0.08   # taller than object half-height (0.050)
 STACKING_NUM_BLOCKS = 3
 STACKING_BLOCK_SIZE_M = [0.120, 0.120, 0.070]
 STACKING_BLOCK_MASS_KG = 0.180
@@ -299,6 +303,39 @@ def _add_collision_object(
     return BodyInfo(name=name, body_id=body, mass_kg=mass_kg, kind="rigid_box")
 
 
+def _add_collision_walls(
+    p,
+    client: int,
+    *,
+    table_top_z: float,
+    restitution: float = 0.80,
+) -> None:
+    ht = COLLISION_WALL_HALF_THICKNESS
+    hh = COLLISION_WALL_HALF_HEIGHT
+    hx = COLLISION_WALL_HALF_X
+    hy = COLLISION_WALL_HALF_Y
+    z = table_top_z + hh
+    rgba = [0.65, 0.58, 0.45, 1.0]
+    wall_specs = [
+        ([ht, hy + ht, hh], [-hx, 0.0, z]),   # left end wall
+        ([ht, hy + ht, hh], [+hx, 0.0, z]),   # right end wall
+        ([hx - ht, ht, hh], [0.0, -hy, z]),   # front side wall
+        ([hx - ht, ht, hh], [0.0, +hy, z]),   # back side wall
+    ]
+    for half_extents, pos in wall_specs:
+        col = p.createCollisionShape(p.GEOM_BOX, halfExtents=half_extents, physicsClientId=client)
+        vis = p.createVisualShape(p.GEOM_BOX, halfExtents=half_extents, rgbaColor=rgba, physicsClientId=client)
+        body = p.createMultiBody(0.0, col, vis, pos, physicsClientId=client)
+        p.changeDynamics(
+            body,
+            -1,
+            restitution=restitution,
+            lateralFriction=0.02,
+            contactProcessingThreshold=0.0,
+            physicsClientId=client,
+        )
+
+
 def _setup_collision_scene(
     p,
     client: int,
@@ -315,6 +352,7 @@ def _setup_collision_scene(
         lateral_friction=0.02,
         table_top_z=table_top_z,
     )
+    _add_collision_walls(p, client, table_top_z=table_top_z, restitution=restitution)
     half = COLLISION_OBJECT_HALF_EXTENTS_M
     vel_a = 0.95 * velocity_scale
     vel_b = 0.75 * velocity_scale
@@ -354,6 +392,9 @@ def _setup_collision_scene(
         "object_a_initial_velocity_m_s": vel_a,
         "object_b_initial_velocity_m_s": vel_b,
         "table_top_z_m": table_top_z,
+        "walled": True,
+        "wall_half_x_m": COLLISION_WALL_HALF_X,
+        "wall_half_y_m": COLLISION_WALL_HALF_Y,
     }
     return table_id, objects, [obj.name for obj in objects], meta
 
