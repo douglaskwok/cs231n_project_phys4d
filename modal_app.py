@@ -62,6 +62,7 @@ def _ignore_repo_mount(path: Path) -> bool:
         top in {
             ".git",
             ".venv",
+            "external",
             "phys_sim",
             "outputs",
             "dataset_outputs",
@@ -125,6 +126,36 @@ _4dgs_image = (
 
 FOURDGS_CONFIGS = "/repo/4dgs/configs"
 FOURDGS_SCRIPTS = "/repo/4dgs/scripts"
+
+# hustvl/4DGaussians (Wu et al., CVPR 2024): global canonical Gaussians +
+# deformation field. Keep this isolated from the Fudan image because it targets
+# the older torch/cu116 stack used by the original project.
+_wu4dgs_image = (
+    modal.Image.from_registry("pytorch/pytorch:1.13.1-cuda11.6-cudnn8-devel")
+    .apt_install("git", "build-essential", "cmake", "libgl1", "libglib2.0-0", "ffmpeg")
+    .pip_install(
+        "numpy<2",
+        "typing_extensions>=4.12",
+        "tqdm",
+        "plyfile",
+        "imageio[ffmpeg]",
+        "lpips",
+        "pytorch_msssim",
+        "matplotlib",
+        "opencv-python-headless",
+        "open3d",
+        "ninja",
+        "addict",
+        "yapf==0.40.1",
+    )
+    .env({"TORCH_CUDA_ARCH_LIST": "8.6+PTX"})
+    .run_commands(
+        "pip install mmcv==1.6.0",
+        "git clone --recursive --depth 1 https://github.com/hustvl/4DGaussians.git /opt/wu4dgs",
+        "pip install -e /opt/wu4dgs/submodules/depth-diff-gaussian-rasterization",
+        "pip install -e /opt/wu4dgs/submodules/simple-knn",
+    )
+)
 
 _repo_ignore = [
     ".git",
@@ -345,6 +376,216 @@ def train_4dgs(
             "No 4D scene at /data/4d_scene. Run: modal run modal_app.py --upload-4d"
         )
     return _train_4dgs_on_paths(scene, Path("/outputs") / model_rel, config_name)
+
+
+def _wu4dgs_config_text(
+    *,
+    iterations: int,
+    coarse_iterations: int,
+    time_resolution: int,
+    bounds: float,
+) -> str:
+    return f"""_base_ = '/opt/wu4dgs/arguments/dnerf/dnerf_default.py'
+
+OptimizationParams = dict(
+    coarse_iterations={int(coarse_iterations)},
+    iterations={int(iterations)},
+    pruning_interval=8000,
+    render_process=False,
+    batch_size=1,
+)
+
+ModelHiddenParams = dict(
+    bounds={float(bounds)},
+    kplanes_config={{
+        'grid_dimensions': 2,
+        'input_coordinate_dim': 4,
+        'output_coordinate_dim': 32,
+        'resolution': [64, 64, 64, {int(time_resolution)}],
+    }},
+)
+"""
+
+
+@app.function(
+    image=_wu4dgs_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 8,
+)
+def train_wu_4dgs(
+    model_rel: str = "wu4dgs_sphere_bounce",
+    iterations: int = 15000,
+    coarse_iterations: int = 3000,
+    time_resolution: int = 75,
+    bounds: float = 1.6,
+) -> str:
+    """Train hustvl/4DGaussians on /data/4d_scene."""
+    import shutil
+
+    scene = Path("/data/4d_scene")
+    if not (scene / "transforms_train.json").is_file():
+        raise FileNotFoundError(
+            "No 4D scene at /data/4d_scene. Upload a DyNeRF export first."
+        )
+
+    model_dir = Path("/outputs") / model_rel
+    if model_dir.exists():
+        shutil.rmtree(model_dir)
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    cfg_path = Path("/tmp/wu4dgs_phys4d.py")
+    cfg_path.write_text(
+        _wu4dgs_config_text(
+            iterations=iterations,
+            coarse_iterations=coarse_iterations,
+            time_resolution=time_resolution,
+            bounds=bounds,
+        ),
+        encoding="utf-8",
+    )
+
+    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    print("Wu 4DGS import probe...", flush=True)
+    subprocess.run(
+        [
+            "python",
+            "-u",
+            "-c",
+            (
+                "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda, flush=True); "
+                "import open3d; print('open3d ok', flush=True); "
+                "from gaussian_renderer import render; print('gaussian_renderer ok', flush=True)"
+            ),
+        ],
+        check=True,
+        cwd="/opt/wu4dgs",
+        env=env,
+        timeout=180,
+    )
+
+    subprocess.run(
+        [
+            "python",
+            "-u",
+            "/opt/wu4dgs/train.py",
+            "--source_path",
+            str(scene),
+            "--model_path",
+            str(model_dir),
+            "--configs",
+            str(cfg_path),
+            "--expname",
+            model_rel,
+            "--save_iterations",
+            str(iterations),
+            "--checkpoint_iterations",
+            str(iterations),
+            "--test_iterations",
+            str(iterations + 1),
+        ],
+        check=True,
+        cwd="/opt/wu4dgs",
+        env=env,
+    )
+
+    output_volume.commit()
+    fine_dir = model_dir / "point_cloud" / f"iteration_{iterations}"
+    ckpt = model_dir / f"chkpnt_fine_{iterations}.pth"
+    return (
+        f"Wu 4DGS trained -> phys4d-gs-output:/{model_rel}\n"
+        f"PLY: {fine_dir / 'point_cloud.ply'}\n"
+        f"deformation: {fine_dir / 'deformation.pth'}\n"
+        f"checkpoint: {ckpt.name if ckpt.is_file() else '(not found)'}"
+    )
+
+
+@app.function(
+    image=_wu4dgs_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 90,
+)
+def render_wu_4dgs(
+    model_rel: str = "wu4dgs_sphere_bounce",
+    iteration: int = 15000,
+    time_resolution: int = 75,
+    bounds: float = 1.6,
+    skip_test: bool = True,
+    skip_video: bool = True,
+) -> str:
+    """Render hustvl/4DGaussians train/test/video sets with its native renderer."""
+    scene = Path("/data/4d_scene")
+    if not (scene / "transforms_train.json").is_file():
+        raise FileNotFoundError(
+            "No 4D scene at /data/4d_scene. Upload the same DyNeRF export used for training."
+        )
+
+    model_dir = Path("/outputs") / model_rel
+    point_dir = model_dir / "point_cloud" / f"iteration_{iteration}"
+    if not (point_dir / "point_cloud.ply").is_file():
+        available = [p.name for p in sorted((model_dir / "point_cloud").glob("iteration_*"))]
+        raise FileNotFoundError(
+            f"No Wu iteration_{iteration} under {model_dir / 'point_cloud'}. Found: {available}"
+        )
+
+    cfg_path = Path("/tmp/wu4dgs_phys4d_render.py")
+    cfg_path.write_text(
+        _wu4dgs_config_text(
+            iterations=iteration,
+            coarse_iterations=min(3000, iteration),
+            time_resolution=time_resolution,
+            bounds=bounds,
+        ),
+        encoding="utf-8",
+    )
+
+    render_py = Path("/opt/wu4dgs/render.py")
+    render_text = render_py.read_text(encoding="utf-8")
+    render_text = render_text.replace(
+        "        render_images.append(to8b(rendering).transpose(1,2,0))\n"
+        "        render_list.append(rendering)\n",
+        "        imageio.imwrite(os.path.join(render_path, '{0:05d}.png'.format(idx)), to8b(rendering).transpose(1,2,0))\n",
+    )
+    render_text = render_text.replace(
+        "            gt_list.append(gt)\n",
+        "            torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}.png'.format(idx)))\n",
+    )
+    render_text = render_text.replace(
+        "    multithread_write(gt_list, gts_path)\n\n"
+        "    multithread_write(render_list, render_path)\n\n"
+        "    \n"
+        "    imageio.mimwrite(os.path.join(model_path, name, \"ours_{}\".format(iteration), 'video_rgb.mp4'), render_images, fps=30)\n",
+        "    print('streamed PNG render complete:', render_path, flush=True)\n",
+    )
+    render_py.write_text(render_text, encoding="utf-8")
+
+    subprocess.run(
+        [
+            "python",
+            "-u",
+            "/opt/wu4dgs/render.py",
+            "--source_path",
+            str(scene),
+            "--model_path",
+            str(model_dir),
+            "--configs",
+            str(cfg_path),
+            "--iteration",
+            str(iteration),
+            *(["--skip_test"] if skip_test else []),
+            *(["--skip_video"] if skip_video else []),
+        ],
+        check=True,
+        cwd="/opt/wu4dgs",
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+    )
+
+    output_volume.commit()
+    return (
+        f"Wu 4DGS render -> phys4d-gs-output:/{model_rel}/train/ours_{iteration}\n"
+        "Native render outputs are renders/*.png, gt/*.png, and video_rgb.mp4."
+    )
 
 
 @app.function(
@@ -872,9 +1113,11 @@ def main(
     train: bool = False,
     upload_4d: bool = False,
     train_4d: bool = False,
+    train_wu_4d: bool = False,
     compose_4d: bool = False,
     export_4d_ply: bool = False,
     render_4d: bool = False,
+    render_wu_4d: bool = False,
     render_4d_multi: bool = False,
     render_4d_orbit: bool = False,
     eval_4d: bool = False,
@@ -892,8 +1135,15 @@ def main(
     render_4d_checkpoint: str | None = None,
     train_4d_config: str = "sphere_bounce_4dgs.yaml",
     train_4d_model: str = "4dgs_sphere_bounce",
+    train_wu_4d_model: str = "wu4dgs_sphere_bounce",
+    wu_iterations: int = 15000,
+    wu_coarse_iterations: int = 3000,
+    wu_time_resolution: int = 75,
+    wu_bounds: float = 1.6,
     render_4d_config: str = "sphere_bounce_4dgs.yaml",
     render_4d_model: str = "4dgs_sphere_bounce",
+    render_wu_4d_model: str = "wu4dgs_sphere_bounce",
+    render_wu_4d_iteration: int = 15000,
     render_4d_multi_models: str = "",
     render_4d_multi_frame_starts: str = "",
     render_4d_multi_frame_ends: str = "",
@@ -983,6 +1233,25 @@ def main(
             f"Download: modal volume get phys4d-gs-output {train_4d_model} . --force"
         )
         return
+    if train_wu_4d:
+        print(
+            train_wu_4dgs.remote(
+                model_rel=train_wu_4d_model,
+                iterations=wu_iterations,
+                coarse_iterations=wu_coarse_iterations,
+                time_resolution=wu_time_resolution,
+                bounds=wu_bounds,
+            )
+        )
+        print(
+            f"Model: phys4d-gs-output:/{train_wu_4d_model}\n"
+            f"Render: arch -arm64 modal run modal_app.py --render-wu-4d "
+            f"--render-wu-4d-model {train_wu_4d_model} "
+            f"--render-wu-4d-iteration {wu_iterations}\n"
+            f"Download: arch -arm64 modal volume get phys4d-gs-output "
+            f"{train_wu_4d_model} . --force"
+        )
+        return
     if compose_4d:
         print(
             compose_4dgs_checkpoints_remote.remote(
@@ -1023,6 +1292,20 @@ def main(
         print(
             "Download video: modal volume get phys4d-gs-output 4dgs_renders/latest . --force\n"
             "  Play trajectory.mp4; PNGs sorted by simulation time then camera."
+        )
+        return
+    if render_wu_4d:
+        print(
+            render_wu_4dgs.remote(
+                model_rel=render_wu_4d_model,
+                iteration=render_wu_4d_iteration,
+                time_resolution=wu_time_resolution,
+                bounds=wu_bounds,
+            )
+        )
+        print(
+            "Download Wu render/model: arch -arm64 modal volume get phys4d-gs-output "
+            f"{render_wu_4d_model} . --force"
         )
         return
     if render_4d_multi:
