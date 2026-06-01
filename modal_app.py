@@ -384,7 +384,14 @@ def _wu4dgs_config_text(
     coarse_iterations: int,
     time_resolution: int,
     bounds: float,
+    densify_until_iter: int = 0,
+    opacity_reset_interval: int = 0,
 ) -> str:
+    optional_optimization = ""
+    if densify_until_iter > 0:
+        optional_optimization += f"    densify_until_iter={int(densify_until_iter)},\n"
+    if opacity_reset_interval > 0:
+        optional_optimization += f"    opacity_reset_interval={int(opacity_reset_interval)},\n"
     return f"""_base_ = '/opt/wu4dgs/arguments/dnerf/dnerf_default.py'
 
 OptimizationParams = dict(
@@ -393,6 +400,7 @@ OptimizationParams = dict(
     pruning_interval=8000,
     render_process=False,
     batch_size=1,
+{optional_optimization.rstrip()}
 )
 
 ModelHiddenParams = dict(
@@ -407,6 +415,223 @@ ModelHiddenParams = dict(
 """
 
 
+def _patch_wu4dgs_aspect_preserving_loader() -> None:
+    """Keep Phys4D frames at their native rectangular resolution in Wu's loader."""
+    reader_py = Path("/opt/wu4dgs/scene/dataset_readers.py")
+    text = reader_py.read_text(encoding="utf-8")
+    old = "image = PILtoTorch(image,(800,800))"
+    new = "image = PILtoTorch(image,None)"
+    if old not in text and new not in text:
+        raise RuntimeError("Could not find Wu Blender image resize line to patch")
+    if old in text:
+        reader_py.write_text(text.replace(old, new), encoding="utf-8")
+        print("Patched Wu Blender loader to preserve native image aspect/resolution", flush=True)
+
+
+def _patch_wu4dgs_foreground_loss(
+    weight: float,
+    mask_weight: float = 0.0,
+    bg_spill_weight: float = 0.0,
+    area_weight: float = 0.0,
+    compactness_weight: float = 0.0,
+    scale_isotropy_weight: float = 0.0,
+    max_scale_weight: float = 0.0,
+    max_scale_value: float = 0.02,
+    cloud_isotropy_weight: float = 0.0,
+    silhouette_roundness_weight: float = 0.0,
+) -> None:
+    """Optionally focus Wu's loss on masked foreground pixels and compact objects."""
+    if (
+        weight <= 0
+        and mask_weight <= 0
+        and bg_spill_weight <= 0
+        and area_weight <= 0
+        and compactness_weight <= 0
+        and scale_isotropy_weight <= 0
+        and max_scale_weight <= 0
+        and cloud_isotropy_weight <= 0
+        and silhouette_roundness_weight <= 0
+    ):
+        return
+    needs_alpha_render = mask_weight > 0 or area_weight > 0 or silhouette_roundness_weight > 0
+    if needs_alpha_render:
+        renderer_py = Path("/opt/wu4dgs/gaussian_renderer/__init__.py")
+        renderer_text = renderer_py.read_text(encoding="utf-8")
+        old = "    else:\n        colors_precomp = override_color\n"
+        new = "    else:\n        colors_precomp = override_color\n        shs_final = None\n"
+        if new not in renderer_text:
+            if old not in renderer_text:
+                raise RuntimeError("Could not patch Wu renderer override_color path")
+            renderer_py.write_text(renderer_text.replace(old, new), encoding="utf-8")
+
+    train_py = Path("/opt/wu4dgs/train.py")
+    text = train_py.read_text(encoding="utf-8")
+    if needs_alpha_render:
+        old = "        images = []\n        gt_images = []\n"
+        new = "        images = []\n        alpha_images = []\n        gt_images = []\n"
+        if new not in text:
+            if old not in text:
+                raise RuntimeError("Could not patch Wu train.py alpha image list")
+            text = text.replace(old, new)
+
+        old = (
+            '            image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], '
+            'render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]\n'
+            "            images.append(image.unsqueeze(0))\n"
+        )
+        new = (
+            '            image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], '
+            'render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]\n'
+            "            images.append(image.unsqueeze(0))\n"
+            "            alpha_pkg = render(viewpoint_cam, gaussians, pipe, background, stage=stage, cam_type=scene.dataset_type, override_color=torch.ones_like(gaussians.get_xyz))\n"
+            '            alpha_images.append(alpha_pkg["render"].amax(dim=0, keepdim=True).unsqueeze(0))\n'
+        )
+        if new not in text:
+            if old not in text:
+                raise RuntimeError("Could not patch Wu train.py alpha render")
+            text = text.replace(old, new)
+
+        old = "        image_tensor = torch.cat(images,0)\n        gt_image_tensor = torch.cat(gt_images,0)\n"
+        new = (
+            "        image_tensor = torch.cat(images,0)\n"
+            "        alpha_tensor = torch.cat(alpha_images,0)\n"
+            "        gt_image_tensor = torch.cat(gt_images,0)\n"
+        )
+        if new not in text:
+            if old not in text:
+                raise RuntimeError("Could not patch Wu train.py alpha tensor")
+            text = text.replace(old, new)
+
+    old = "        Ll1 = l1_loss(image_tensor, gt_image_tensor[:,:3,:,:])\n"
+    compactness_term = ""
+    if compactness_weight > 0:
+        compactness_term = f"""        xyz_compact = gaussians.get_xyz
+        xyz_center = xyz_compact.mean(dim=0, keepdim=True).detach()
+        Ll1 = Ll1 + {float(compactness_weight)} * (xyz_compact - xyz_center).pow(2).sum(dim=1).mean()
+"""
+    scale_isotropy_term = ""
+    if scale_isotropy_weight > 0:
+        scale_isotropy_term = f"""        scale_iso = torch.log(torch.clamp(gaussians.get_scaling, min=1e-6))
+        Ll1 = Ll1 + {float(scale_isotropy_weight)} * (scale_iso - scale_iso.mean(dim=1, keepdim=True)).pow(2).mean()
+"""
+    max_scale_term = ""
+    if max_scale_weight > 0:
+        max_scale_term = f"""        scale_size = torch.log(torch.clamp(gaussians.get_scaling, min=1e-6))
+        max_scale_log = torch.log(torch.tensor({float(max_scale_value)}, device=scale_size.device))
+        Ll1 = Ll1 + {float(max_scale_weight)} * torch.relu(scale_size - max_scale_log).pow(2).mean()
+"""
+    cloud_isotropy_term = ""
+    if cloud_isotropy_weight > 0:
+        cloud_isotropy_term = f"""        xyz_iso = gaussians.get_xyz - gaussians.get_xyz.mean(dim=0, keepdim=True).detach()
+        cov_iso = xyz_iso.transpose(0, 1).matmul(xyz_iso) / torch.clamp(torch.tensor(float(xyz_iso.shape[0]), device=xyz_iso.device), min=1.0)
+        eig_iso = torch.linalg.eigvalsh(cov_iso + torch.eye(3, device=xyz_iso.device) * 1e-8)
+        eig_iso = eig_iso / torch.clamp(eig_iso.mean().detach(), min=1e-8)
+        Ll1 = Ll1 + {float(cloud_isotropy_weight)} * (eig_iso - 1.0).pow(2).mean()
+"""
+    silhouette_roundness_term = ""
+    if silhouette_roundness_weight > 0:
+        silhouette_roundness_term = f"""        alpha_for_round = torch.clamp(alpha_tensor, 0.0, 1.0)
+        b_round, _, h_round, w_round = alpha_for_round.shape
+        yy_round, xx_round = torch.meshgrid(
+            torch.linspace(-1.0, 1.0, h_round, device=alpha_for_round.device),
+            torch.linspace(-1.0, 1.0, w_round, device=alpha_for_round.device),
+            indexing='ij'
+        )
+        xx_round = xx_round.view(1, 1, h_round, w_round)
+        yy_round = yy_round.view(1, 1, h_round, w_round)
+        mass_round = alpha_for_round.sum(dim=(2, 3), keepdim=True).clamp_min(1e-6)
+        mx_round = (alpha_for_round * xx_round).sum(dim=(2, 3), keepdim=True) / mass_round
+        my_round = (alpha_for_round * yy_round).sum(dim=(2, 3), keepdim=True) / mass_round
+        dx_round = xx_round - mx_round
+        dy_round = yy_round - my_round
+        cxx_round = (alpha_for_round * dx_round.pow(2)).sum(dim=(2, 3), keepdim=True) / mass_round
+        cyy_round = (alpha_for_round * dy_round.pow(2)).sum(dim=(2, 3), keepdim=True) / mass_round
+        cxy_round = (alpha_for_round * dx_round * dy_round).sum(dim=(2, 3), keepdim=True) / mass_round
+        trace_round = cxx_round + cyy_round
+        disc_round = torch.sqrt((cxx_round - cyy_round).pow(2) + 4.0 * cxy_round.pow(2) + 1e-10)
+        anis_round = disc_round / torch.clamp(trace_round, min=1e-6)
+        visible_round = (mass_round.flatten() > 4.0).float()
+        Ll1 = Ll1 + {float(silhouette_roundness_weight)} * (anis_round.flatten().pow(2) * visible_round).sum() / visible_round.sum().clamp_min(1.0)
+"""
+    area_term = ""
+    if area_weight > 0:
+        area_term = f"""        pred_area = alpha_clamped.sum(dim=(2, 3)).clamp_min(1.0)
+        gt_area = fg_mask.sum(dim=(2, 3)).clamp_min(1.0)
+        visible_area = (gt_area.flatten() > 4.0).float()
+        rel_area_error = (torch.log(pred_area) - torch.log(gt_area)).pow(2).flatten()
+        Ll1 = Ll1 + {float(area_weight)} * (rel_area_error * visible_area).sum() / visible_area.sum().clamp_min(1.0)
+"""
+
+    normalized_region_loss = f"""        gt_rgb_tensor = gt_image_tensor[:,:3,:,:]
+        fg_mask = (gt_rgb_tensor > (2.0 / 255.0)).any(dim=1, keepdim=True).float()
+        bg_mask = 1.0 - fg_mask
+        abs_rgb = torch.abs(image_tensor - gt_rgb_tensor)
+        fg_count = (fg_mask.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
+        bg_count = (bg_mask.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
+        fg_l1 = (abs_rgb * fg_mask).sum() / fg_count
+        bg_l1 = (abs_rgb * bg_mask).sum() / bg_count
+        Ll1 = bg_l1 + {float(weight)} * fg_l1
+"""
+    bg_spill_term = ""
+    if bg_spill_weight > 0:
+        bg_spill_term = f"""        bg_rgb_spill_loss = (abs_rgb * bg_mask).sum() / fg_count
+        Ll1 = Ll1 + {float(bg_spill_weight)} * bg_rgb_spill_loss
+"""
+
+    mask_term = ""
+    if mask_weight > 0:
+        mask_term = f"""        fg_alpha_norm = fg_mask.sum().clamp_min(1.0)
+        fg_alpha_loss = (torch.abs(alpha_clamped - fg_mask) * fg_mask).sum() / fg_alpha_norm
+        bg_alpha_loss = (torch.abs(alpha_clamped - fg_mask) * bg_mask).sum() / fg_alpha_norm
+        Ll1 = Ll1 + {float(mask_weight)} * (fg_alpha_loss + bg_alpha_loss)
+"""
+
+    if needs_alpha_render:
+        new = f"""        gt_rgb_tensor = gt_image_tensor[:,:3,:,:]
+        fg_mask = (gt_rgb_tensor > (2.0 / 255.0)).any(dim=1, keepdim=True).float()
+        bg_mask = 1.0 - fg_mask
+        abs_rgb = torch.abs(image_tensor - gt_rgb_tensor)
+        fg_count = (fg_mask.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
+        bg_count = (bg_mask.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
+        fg_l1 = (abs_rgb * fg_mask).sum() / fg_count
+        bg_l1 = (abs_rgb * bg_mask).sum() / bg_count
+        Ll1 = bg_l1 + {float(weight)} * fg_l1
+        alpha_clamped = torch.clamp(alpha_tensor, 0.0, 1.0)
+{mask_term.rstrip()}
+{bg_spill_term.rstrip()}
+{area_term.rstrip()}
+{compactness_term.rstrip()}
+{scale_isotropy_term.rstrip()}
+{max_scale_term.rstrip()}
+{cloud_isotropy_term.rstrip()}
+{silhouette_roundness_term.rstrip()}
+"""
+    else:
+        new = f"""{normalized_region_loss.rstrip()}
+{bg_spill_term.rstrip()}
+{compactness_term.rstrip()}
+{scale_isotropy_term.rstrip()}
+{max_scale_term.rstrip()}
+{cloud_isotropy_term.rstrip()}
+{silhouette_roundness_term.rstrip()}
+"""
+    if new in text:
+        return
+    if old not in text:
+        raise RuntimeError("Could not patch Wu train.py foreground-weighted loss")
+    train_py.write_text(text.replace(old, new), encoding="utf-8")
+    print(
+        f"Patched Wu normalized foreground/background L1 loss with foreground_weight={weight} "
+        f"mask_weight={mask_weight} bg_spill_weight={bg_spill_weight} "
+        f"area_weight={area_weight} compactness_weight={compactness_weight} "
+        f"scale_isotropy_weight={scale_isotropy_weight} "
+        f"max_scale_weight={max_scale_weight} max_scale_value={max_scale_value} "
+        f"cloud_isotropy_weight={cloud_isotropy_weight} "
+        f"silhouette_roundness_weight={silhouette_roundness_weight}",
+        flush=True,
+    )
+
+
 @app.function(
     image=_wu4dgs_image,
     gpu="A10G",
@@ -419,17 +644,51 @@ def train_wu_4dgs(
     coarse_iterations: int = 3000,
     time_resolution: int = 75,
     bounds: float = 1.6,
+    foreground_loss_weight: float = 0.0,
+    mask_loss_weight: float = 0.0,
+    bg_spill_loss_weight: float = 0.0,
+    area_loss_weight: float = 0.0,
+    compactness_loss_weight: float = 0.0,
+    scale_isotropy_loss_weight: float = 0.0,
+    max_scale_loss_weight: float = 0.0,
+    max_gaussian_scale: float = 0.02,
+    cloud_isotropy_loss_weight: float = 0.0,
+    silhouette_roundness_loss_weight: float = 0.0,
+    densify_until_iter: int = 0,
+    opacity_reset_interval: int = 0,
+    start_checkpoint: str = "",
 ) -> str:
     """Train hustvl/4DGaussians on /data/4d_scene."""
     import shutil
+    import tarfile
 
     scene = Path("/data/4d_scene")
+    scene_archive = Path("/data/4d_scene.tar.gz")
     if not (scene / "transforms_train.json").is_file():
-        raise FileNotFoundError(
-            "No 4D scene at /data/4d_scene. Upload a DyNeRF export first."
-        )
+        if scene_archive.is_file():
+            extracted = Path("/tmp/4d_scene")
+            if extracted.exists():
+                shutil.rmtree(extracted)
+            extracted.mkdir(parents=True, exist_ok=True)
+            with tarfile.open(scene_archive, "r:gz") as tar:
+                tar.extractall(extracted)
+            scene = extracted
+            print(f"Extracted archived DyNeRF scene from {scene_archive} to {scene}", flush=True)
+        else:
+            raise FileNotFoundError(
+                "No 4D scene at /data/4d_scene or /data/4d_scene.tar.gz. "
+                "Upload a DyNeRF export first."
+            )
 
     model_dir = Path("/outputs") / model_rel
+    start_checkpoint_path: Path | None = None
+    if start_checkpoint:
+        start_checkpoint_path = Path(start_checkpoint)
+        if not start_checkpoint_path.is_absolute():
+            start_checkpoint_path = Path("/outputs") / start_checkpoint_path
+        if not start_checkpoint_path.is_file():
+            raise FileNotFoundError(f"Missing Wu start checkpoint: {start_checkpoint_path}")
+        print(f"Resuming Wu 4DGS from {start_checkpoint_path}", flush=True)
     if model_dir.exists():
         shutil.rmtree(model_dir)
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -441,11 +700,26 @@ def train_wu_4dgs(
             coarse_iterations=coarse_iterations,
             time_resolution=time_resolution,
             bounds=bounds,
+            densify_until_iter=densify_until_iter,
+            opacity_reset_interval=opacity_reset_interval,
         ),
         encoding="utf-8",
     )
 
     env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    _patch_wu4dgs_aspect_preserving_loader()
+    _patch_wu4dgs_foreground_loss(
+        foreground_loss_weight,
+        mask_loss_weight,
+        bg_spill_loss_weight,
+        area_loss_weight,
+        compactness_loss_weight,
+        scale_isotropy_loss_weight,
+        max_scale_loss_weight,
+        max_gaussian_scale,
+        cloud_isotropy_loss_weight,
+        silhouette_roundness_loss_weight,
+    )
     print("Wu 4DGS import probe...", flush=True)
     subprocess.run(
         [
@@ -464,8 +738,7 @@ def train_wu_4dgs(
         timeout=180,
     )
 
-    subprocess.run(
-        [
+    train_cmd = [
             "python",
             "-u",
             "/opt/wu4dgs/train.py",
@@ -483,7 +756,12 @@ def train_wu_4dgs(
             str(iterations),
             "--test_iterations",
             str(iterations + 1),
-        ],
+    ]
+    if start_checkpoint_path is not None:
+        train_cmd.extend(["--start_checkpoint", str(start_checkpoint_path)])
+
+    subprocess.run(
+        train_cmd,
         check=True,
         cwd="/opt/wu4dgs",
         env=env,
@@ -515,11 +793,26 @@ def render_wu_4dgs(
     skip_video: bool = True,
 ) -> str:
     """Render hustvl/4DGaussians train/test/video sets with its native renderer."""
+    import shutil
+    import tarfile
+
     scene = Path("/data/4d_scene")
+    scene_archive = Path("/data/4d_scene.tar.gz")
     if not (scene / "transforms_train.json").is_file():
-        raise FileNotFoundError(
-            "No 4D scene at /data/4d_scene. Upload the same DyNeRF export used for training."
-        )
+        if scene_archive.is_file():
+            extracted = Path("/tmp/4d_scene")
+            if extracted.exists():
+                shutil.rmtree(extracted)
+            extracted.mkdir(parents=True, exist_ok=True)
+            with tarfile.open(scene_archive, "r:gz") as tar:
+                tar.extractall(extracted)
+            scene = extracted
+            print(f"Extracted archived DyNeRF scene from {scene_archive} to {scene}", flush=True)
+        else:
+            raise FileNotFoundError(
+                "No 4D scene at /data/4d_scene or /data/4d_scene.tar.gz. "
+                "Upload the same DyNeRF export used for training."
+            )
 
     model_dir = Path("/outputs") / model_rel
     point_dir = model_dir / "point_cloud" / f"iteration_{iteration}"
@@ -540,6 +833,7 @@ def render_wu_4dgs(
         encoding="utf-8",
     )
 
+    _patch_wu4dgs_aspect_preserving_loader()
     render_py = Path("/opt/wu4dgs/render.py")
     render_text = render_py.read_text(encoding="utf-8")
     render_text = render_text.replace(
@@ -1139,6 +1433,19 @@ def main(
     wu_coarse_iterations: int = 3000,
     wu_time_resolution: int = 75,
     wu_bounds: float = 1.6,
+    wu_foreground_loss_weight: float = 0.0,
+    wu_mask_loss_weight: float = 0.0,
+    wu_bg_spill_loss_weight: float = 0.0,
+    wu_area_loss_weight: float = 0.0,
+    wu_compactness_loss_weight: float = 0.0,
+    wu_scale_isotropy_loss_weight: float = 0.0,
+    wu_max_scale_loss_weight: float = 0.0,
+    wu_max_gaussian_scale: float = 0.02,
+    wu_cloud_isotropy_loss_weight: float = 0.0,
+    wu_silhouette_roundness_loss_weight: float = 0.0,
+    wu_densify_until_iter: int = 0,
+    wu_opacity_reset_interval: int = 0,
+    wu_start_checkpoint: str = "",
     render_4d_config: str = "sphere_bounce_4dgs.yaml",
     render_4d_model: str = "4dgs_sphere_bounce",
     render_wu_4d_model: str = "wu4dgs_sphere_bounce",
@@ -1240,6 +1547,19 @@ def main(
                 coarse_iterations=wu_coarse_iterations,
                 time_resolution=wu_time_resolution,
                 bounds=wu_bounds,
+                foreground_loss_weight=wu_foreground_loss_weight,
+                mask_loss_weight=wu_mask_loss_weight,
+                bg_spill_loss_weight=wu_bg_spill_loss_weight,
+                area_loss_weight=wu_area_loss_weight,
+                compactness_loss_weight=wu_compactness_loss_weight,
+                scale_isotropy_loss_weight=wu_scale_isotropy_loss_weight,
+                max_scale_loss_weight=wu_max_scale_loss_weight,
+                max_gaussian_scale=wu_max_gaussian_scale,
+                cloud_isotropy_loss_weight=wu_cloud_isotropy_loss_weight,
+                silhouette_roundness_loss_weight=wu_silhouette_roundness_loss_weight,
+                densify_until_iter=wu_densify_until_iter,
+                opacity_reset_interval=wu_opacity_reset_interval,
+                start_checkpoint=wu_start_checkpoint,
             )
         )
         print(

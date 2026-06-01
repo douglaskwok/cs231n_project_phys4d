@@ -486,8 +486,9 @@ def _initial_velocity_for_ball_angle(
     ball_angle_deg: float,
     *,
     ball_radius_m: float = BALL_RADIUS,
+    drop_height_above_surface_m: float = BALL_START_HEIGHT_ABOVE_SURFACE,
 ) -> list[float]:
-    drop_to_contact_m = max(0.0, BALL_START_HEIGHT_ABOVE_SURFACE - ball_radius_m)
+    drop_to_contact_m = max(0.0, drop_height_above_surface_m - ball_radius_m)
     impact_vertical_speed = math.sqrt(2.0 * abs(GRAVITY) * drop_to_contact_m)
     horizontal_speed = impact_vertical_speed * math.tan(math.radians(ball_angle_deg))
     return [horizontal_speed, 0.0, 0.0]
@@ -750,12 +751,41 @@ def _frame_split_ranges(num_frames: int, video_fps: float) -> tuple[list[int], l
     return [0, train_end], [test_start, test_end]
 
 
+def _write_ball_marker_texture(scene_dir: Path, imageio_module) -> Path:
+    """Write a simple equirectangular texture for tracking a plain sphere."""
+
+    texture_dir = scene_dir / "assets"
+    texture_dir.mkdir(parents=True, exist_ok=True)
+    texture_path = texture_dir / "ball_marker_texture.png"
+
+    h, w = 256, 512
+    tex = np.empty((h, w, 3), dtype=np.uint8)
+    tex[:, :] = np.array([26, 132, 224], dtype=np.uint8)
+
+    yy, xx = np.mgrid[0:h, 0:w]
+    lon = (xx / w) * 2.0 * math.pi
+    lat = ((yy / h) - 0.5) * math.pi
+
+    stripe = (np.abs(np.sin(3.0 * lon)) < 0.055) | (np.abs(np.sin(2.0 * lat)) < 0.05)
+    tex[stripe] = np.array([238, 246, 255], dtype=np.uint8)
+
+    dot = ((xx - int(0.18 * w)) ** 2 / (0.055 * w) ** 2) + (
+        (yy - int(0.42 * h)) ** 2 / (0.11 * h) ** 2
+    ) < 1.0
+    tex[dot] = np.array([245, 104, 42], dtype=np.uint8)
+
+    imageio_module.imwrite(texture_path, tex)
+    return texture_path
+
+
 def _simulate_variation_scene(
     *,
     scene_dir: Path,
     restitution: float,
     ball_angle_deg: float,
     ball_radius_m: float,
+    table_top_z: float,
+    drop_height_above_surface_m: float,
     environment: str,
     video_fps: float,
     sim_hz: float,
@@ -763,6 +793,7 @@ def _simulate_variation_scene(
     camera_distance_scale: float,
     camera_target_z: float,
     camera_fov_scale: float,
+    ball_visual_style: str,
     render_camera_names: set[str] | None,
     max_frames: int | None,
     overwrite: bool,
@@ -804,7 +835,7 @@ def _simulate_variation_scene(
 
     tangent_x, tangent_y, normal = _flat_surface_basis()
     table_orientation = p.getQuaternionFromEuler([0.0, 0.0, 0.0])
-    surface_center = np.array([0.0, 0.0, TABLE_TOP_Z], dtype=np.float64)
+    surface_center = np.array([0.0, 0.0, table_top_z], dtype=np.float64)
     table_center = surface_center - normal * (TABLE_THICKNESS / 2.0)
 
     table_col = p.createCollisionShape(
@@ -844,7 +875,7 @@ def _simulate_variation_scene(
     )
     ball_start_xy = _start_xy_for_ball_angle(ball_angle_deg)
     start_surface_point = surface_center + tangent_x * ball_start_xy[0] + tangent_y * ball_start_xy[1]
-    ball_start = start_surface_point + normal * BALL_START_HEIGHT_ABOVE_SURFACE
+    ball_start = start_surface_point + normal * drop_height_above_surface_m
     ball_id = p.createMultiBody(
         baseMass=BALL_MASS,
         baseCollisionShapeIndex=ball_col,
@@ -852,6 +883,14 @@ def _simulate_variation_scene(
         basePosition=ball_start.tolist(),
         physicsClientId=client,
     )
+    ball_texture_path = None
+    if ball_visual_style == "marker":
+        texture_path = _write_ball_marker_texture(scene_dir, imageio)
+        tex_id = p.loadTexture(str(texture_path), physicsClientId=client)
+        p.changeVisualShape(ball_id, -1, textureUniqueId=tex_id, physicsClientId=client)
+        ball_texture_path = texture_path
+    elif ball_visual_style != "solid":
+        raise ValueError(f"Unknown ball visual style: {ball_visual_style}")
     p.changeDynamics(
         ball_id,
         -1,
@@ -864,7 +903,11 @@ def _simulate_variation_scene(
     )
     p.resetBaseVelocity(
         ball_id,
-        linearVelocity=_initial_velocity_for_ball_angle(ball_angle_deg, ball_radius_m=ball_radius_m),
+        linearVelocity=_initial_velocity_for_ball_angle(
+            ball_angle_deg,
+            ball_radius_m=ball_radius_m,
+            drop_height_above_surface_m=drop_height_above_surface_m,
+        ),
         angularVelocity=BALL_INITIAL_ANGULAR_VELOCITY,
         physicsClientId=client,
     )
@@ -1050,8 +1093,12 @@ def _simulate_variation_scene(
                     "initial_velocity_m_s": _initial_velocity_for_ball_angle(
                         ball_angle_deg,
                         ball_radius_m=ball_radius_m,
+                        drop_height_above_surface_m=drop_height_above_surface_m,
                     ),
                     "start_xy_m": ball_start_xy,
+                    "drop_height_above_surface_m": drop_height_above_surface_m,
+                    "visual_style": ball_visual_style,
+                    "texture": _repo_path(ball_texture_path) if ball_texture_path else None,
                 },
                 {
                     "name": "table",
@@ -1105,10 +1152,13 @@ def _simulate_variation_scene(
             "radius_m": ball_radius_m,
             "environment": environment,
             "initial_direction": "signed_x_from_ball_angle",
+            "drop_height_above_surface_m": drop_height_above_surface_m,
             "start_xy_m": ball_start_xy,
+            "table_top_z_m": table_top_z,
             "table_size_m": [TABLE_LENGTH, TABLE_WIDTH, TABLE_THICKNESS],
             "ball_lateral_friction": BALL_LATERAL_FRICTION,
             "table_lateral_friction": TABLE_LATERAL_FRICTION,
+            "ball_visual_style": ball_visual_style,
             "contact_processing_threshold": CONTACT_PROCESSING_THRESHOLD,
             "restitution_velocity_threshold": RESTITUTION_VELOCITY_THRESHOLD,
             "drag_enabled": False,
@@ -1156,6 +1206,8 @@ def generate_variation_dataset(
     restitution: float,
     ball_angle_deg: float,
     ball_radius_m: float,
+    table_top_z: float,
+    drop_height_above_surface_m: float,
     environment: str,
     video_fps: float,
     sim_hz: float,
@@ -1163,6 +1215,7 @@ def generate_variation_dataset(
     camera_distance_scale: float,
     camera_target_z: float,
     camera_fov_scale: float,
+    ball_visual_style: str,
     render_camera_names: set[str] | None,
     max_frames: int | None,
     overwrite: bool,
@@ -1186,6 +1239,8 @@ def generate_variation_dataset(
             "output_dir": str(output_dir),
             "num_scenes": len(planned),
             "ball_radius_m": ball_radius_m,
+            "table_top_z_m": table_top_z,
+            "drop_height_above_surface_m": drop_height_above_surface_m,
             "environment": environment,
             "video_fps": video_fps,
             "sim_hz": sim_hz,
@@ -1193,6 +1248,7 @@ def generate_variation_dataset(
             "camera_distance_scale": camera_distance_scale,
             "camera_target_z": camera_target_z,
             "camera_fov_scale": camera_fov_scale,
+            "ball_visual_style": ball_visual_style,
             "steps_per_frame": _steps_per_frame(video_fps, sim_hz),
             "render_camera_names": "all" if render_camera_names is None else sorted(render_camera_names),
             "video_camera_names": "all" if video_camera_names is None else sorted(video_camera_names),
@@ -1214,6 +1270,8 @@ def generate_variation_dataset(
             restitution=params["restitution"],
             ball_angle_deg=params["ball_angle_deg"],
             ball_radius_m=ball_radius_m,
+            table_top_z=table_top_z,
+            drop_height_above_surface_m=drop_height_above_surface_m,
             environment=environment,
             video_fps=video_fps,
             sim_hz=sim_hz,
@@ -1221,6 +1279,7 @@ def generate_variation_dataset(
             camera_distance_scale=camera_distance_scale,
             camera_target_z=camera_target_z,
             camera_fov_scale=camera_fov_scale,
+            ball_visual_style=ball_visual_style,
             render_camera_names=render_camera_names,
             max_frames=max_frames,
             overwrite=overwrite,
@@ -1252,16 +1311,19 @@ def generate_variation_dataset(
         "camera_distance_scale": camera_distance_scale,
         "camera_target_z": camera_target_z,
         "camera_fov_scale": camera_fov_scale,
+        "ball_visual_style": ball_visual_style,
         "steps_per_frame": _steps_per_frame(video_fps, sim_hz),
         "fixed_params": {
             "mass_kg": BALL_MASS,
             "radius_m": ball_radius_m,
             "environment": environment,
             "initial_direction": "signed_x_from_ball_angle",
-            "drop_height_above_surface_m": BALL_START_HEIGHT_ABOVE_SURFACE,
+            "drop_height_above_surface_m": drop_height_above_surface_m,
+            "table_top_z_m": table_top_z,
             "camera_distance_scale": camera_distance_scale,
             "camera_target_z": camera_target_z,
             "camera_fov_scale": camera_fov_scale,
+            "ball_visual_style": ball_visual_style,
             "working_object_only_baseline": WORKING_OBJECT_ONLY_BASELINE,
             "table_size_m": [TABLE_LENGTH, TABLE_WIDTH, TABLE_THICKNESS],
             "drag_enabled": False,
@@ -1347,6 +1409,24 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--table-top-z",
+        type=float,
+        default=TABLE_TOP_Z,
+        help=(
+            "Generated-scene table/surface top height in meters. "
+            f"Default: {TABLE_TOP_Z}."
+        ),
+    )
+    parser.add_argument(
+        "--drop-height-above-surface-m",
+        type=float,
+        default=BALL_START_HEIGHT_ABOVE_SURFACE,
+        help=(
+            "Generated-scene ball center start height above the table/surface. "
+            f"Default: {BALL_START_HEIGHT_ABOVE_SURFACE}."
+        ),
+    )
+    parser.add_argument(
         "--environment",
         choices=["room", "tabletop"],
         default="room",
@@ -1411,12 +1491,24 @@ def main() -> int:
             "1.0 zoom in without moving camera positions. Default: 1.0."
         ),
     )
+    parser.add_argument(
+        "--ball-visual-style",
+        choices=["solid", "marker"],
+        default="solid",
+        help=(
+            "Visual appearance for generated balls. 'solid' keeps the plain blue "
+            "sphere; 'marker' adds a trackable sphere texture while preserving "
+            "the same PyBullet segmentation mask. Default: solid."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     video_camera_names = _parse_video_camera_names(args.video_camera_names)
     render_camera_names = _parse_video_camera_names(args.render_camera_names)
     if args.ball_radius_m <= 0:
         raise ValueError("--ball-radius-m must be positive.")
+    if args.drop_height_above_surface_m <= args.ball_radius_m:
+        raise ValueError("--drop-height-above-surface-m must be greater than --ball-radius-m.")
     if args.video_fps <= 0:
         raise ValueError("--video-fps must be positive.")
     if args.sim_hz <= 0:
@@ -1441,6 +1533,8 @@ def main() -> int:
             restitution=args.restitution,
             ball_angle_deg=args.ball_angle_deg,
             ball_radius_m=args.ball_radius_m,
+            table_top_z=args.table_top_z,
+            drop_height_above_surface_m=args.drop_height_above_surface_m,
             environment=args.environment,
             video_fps=args.video_fps,
             sim_hz=args.sim_hz,
@@ -1448,6 +1542,7 @@ def main() -> int:
             camera_distance_scale=args.camera_distance_scale,
             camera_target_z=args.camera_target_z,
             camera_fov_scale=args.camera_fov_scale,
+            ball_visual_style=args.ball_visual_style,
             render_camera_names=render_camera_names,
             max_frames=args.max_frames,
             overwrite=not args.no_overwrite,

@@ -12,7 +12,10 @@ import argparse
 import shlex
 import subprocess
 import sys
+import tarfile
+import time
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 _FOURDGS_DIR = Path(__file__).resolve().parents[1]
 if str(_FOURDGS_DIR) not in sys.path:
@@ -40,6 +43,21 @@ def main() -> int:
         action="store_true",
         help="Do not remove the existing remote folder before upload.",
     )
+    parser.add_argument(
+        "--attempts",
+        type=int,
+        default=3,
+        help="Number of upload attempts for transient Modal connection failures.",
+    )
+    parser.add_argument(
+        "--archive",
+        action="store_true",
+        help=(
+            "Upload the scene as one tar.gz file at <remote-path>.tar.gz instead of "
+            "uploading thousands of individual files. The Modal training function "
+            "can unpack this archive."
+        ),
+    )
     args = parser.parse_args()
 
     scene = args.scene.resolve()
@@ -51,19 +69,61 @@ def main() -> int:
         return 1
 
     modal_cmd = shlex.split(args.modal_cmd)
+    remote_archive = f"{args.remote_path.rstrip('/')}.tar.gz"
     if not args.keep_existing:
         subprocess.run(
             [*modal_cmd, "volume", "rm", args.volume, args.remote_path, "-r"],
             check=False,
             cwd=str(REPO_ROOT),
         )
+        if args.archive:
+            subprocess.run(
+                [*modal_cmd, "volume", "rm", args.volume, remote_archive],
+                check=False,
+                cwd=str(REPO_ROOT),
+            )
 
-    subprocess.run(
-        [*modal_cmd, "volume", "put", args.volume, str(scene), args.remote_path],
-        check=True,
-        cwd=str(REPO_ROOT),
-    )
-    print(f"Uploaded {scene} -> {args.volume}:/{args.remote_path}")
+    last_error: subprocess.CalledProcessError | None = None
+    upload_source = scene
+    upload_remote = args.remote_path
+    tmp_dir_cm: TemporaryDirectory[str] | None = None
+    if args.archive:
+        tmp_dir_cm = TemporaryDirectory()
+        archive_path = Path(tmp_dir_cm.name) / "4d_scene.tar.gz"
+        with tarfile.open(archive_path, "w:gz") as tar:
+            for child in sorted(scene.iterdir()):
+                tar.add(child, arcname=child.name)
+        upload_source = archive_path
+        upload_remote = remote_archive
+
+    for attempt in range(1, max(1, args.attempts) + 1):
+        try:
+            subprocess.run(
+                [
+                    *modal_cmd,
+                    "volume",
+                    "put",
+                    "--force",
+                    args.volume,
+                    str(upload_source),
+                    upload_remote,
+                ],
+                check=True,
+                cwd=str(REPO_ROOT),
+            )
+            break
+        except subprocess.CalledProcessError as exc:
+            last_error = exc
+            if attempt >= max(1, args.attempts):
+                raise
+            print(
+                f"Upload attempt {attempt}/{args.attempts} failed; retrying in 30s...",
+                file=sys.stderr,
+            )
+            time.sleep(30)
+    if tmp_dir_cm is not None:
+        tmp_dir_cm.cleanup()
+    print(f"Uploaded {scene} -> {args.volume}:/{upload_remote}")
     return 0
 
 
