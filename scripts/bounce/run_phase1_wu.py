@@ -184,6 +184,16 @@ def main() -> int:
             "This only fixes the arbitrary GS world origin; per-frame motion is untouched."
         ),
     )
+    parser.add_argument(
+        "--align-scale",
+        action="store_true",
+        help=(
+            "In addition to translation, fit a single ISOTROPIC scale (4DGS world units "
+            "-> metres) over the extracted window vs GT. Some Wu runs reconstruct the "
+            "scene at an arbitrary metric scale; this is a one-time world calibration. "
+            "Fit it on the TRAIN window only (use --frame-end) to avoid test leakage."
+        ),
+    )
     args = parser.parse_args()
 
     import torch
@@ -262,6 +272,7 @@ def main() -> int:
     # Optionally register the (arbitrary) 4DGS world origin into the sim/camera world
     # by a constant translation estimated from the extracted window only.
     align_translation = np.zeros(3, dtype=np.float64)
+    align_scale = 1.0
     if args.align_to_gt:
         if args.gt_poses is None or not args.gt_poses.is_file():
             raise ValueError("--align-to-gt requires a valid --gt-poses CSV")
@@ -269,8 +280,20 @@ def main() -> int:
         gt_align = np.stack(
             [traj_align.by_frame(int(f)).position for f in frame_ids], axis=0
         )
-        align_translation = np.mean(gt_align - raw_arr, axis=0)
-        raw_arr = raw_arr + align_translation[None, :]
+        if args.align_scale:
+            # Isotropic similarity (no rotation): minimise ||s*raw + t - gt|| over the
+            # window. s uses the combined-axis variance so the high-motion axis (z)
+            # dominates and the near-static x/y do not destabilise the estimate.
+            raw_bar = raw_arr.mean(axis=0)
+            gt_bar = gt_align.mean(axis=0)
+            num = float(np.sum((raw_arr - raw_bar) * (gt_align - gt_bar)))
+            den = float(np.sum((raw_arr - raw_bar) ** 2))
+            align_scale = num / den if den > 1e-12 else 1.0
+            align_translation = gt_bar - align_scale * raw_bar
+            raw_arr = align_scale * raw_arr + align_translation[None, :]
+        else:
+            align_translation = np.mean(gt_align - raw_arr, axis=0)
+            raw_arr = raw_arr + align_translation[None, :]
         for i, row in enumerate(raw_rows):
             row["x"] = float(raw_arr[i, 0])
             row["y"] = float(raw_arr[i, 1])
@@ -328,6 +351,7 @@ def main() -> int:
         "fps": float(fps),
         "time_normalization": "frame / (num_frames - 1)",
         "aligned_to_gt": bool(args.align_to_gt),
+        "align_scale": float(align_scale),
         "align_translation_xyz_m": align_translation.tolist(),
         "train_mse_m2": train_mse,
         "train_mse_aligned_m2": train_mse_aligned,

@@ -177,3 +177,148 @@ def opacity_weighted_centroid(xyz: np.ndarray, weights: np.ndarray) -> np.ndarra
     if total < 1e-12:
         return pts.mean(axis=0)
     return (pts * w[:, None]).sum(axis=0) / total
+
+
+def geometric_median(
+    xyz: np.ndarray,
+    weights: np.ndarray | None = None,
+    *,
+    n_iter: int = 64,
+    tol: float = 1e-9,
+) -> np.ndarray:
+    """Weighted geometric median (Weiszfeld). Parameter-free, robust to residual spill.
+
+    Minimizes the sum of (optionally opacity-weighted) Euclidean distances, which is far
+    less sensitive to a handful of far outliers than the mean centroid — and needs no
+    distance threshold, so it stays scene-agnostic.
+    """
+
+    pts = np.asarray(xyz, dtype=np.float64).reshape(-1, 3)
+    if pts.shape[0] == 0:
+        raise ValueError("No Gaussians for geometric median")
+    if weights is None:
+        w = np.ones(pts.shape[0], dtype=np.float64)
+    else:
+        w = np.clip(np.asarray(weights, dtype=np.float64).reshape(-1), 0.0, None)
+    if float(w.sum()) < 1e-12:
+        w = np.ones(pts.shape[0], dtype=np.float64)
+
+    center = (pts * w[:, None]).sum(axis=0) / w.sum()
+    for _ in range(int(n_iter)):
+        d = np.linalg.norm(pts - center, axis=1)
+        near = d < 1e-12
+        if np.any(near):
+            return pts[near][0].copy()
+        ww = w / d
+        new_center = (pts * ww[:, None]).sum(axis=0) / ww.sum()
+        if float(np.linalg.norm(new_center - center)) < tol:
+            center = new_center
+            break
+        center = new_center
+    return center
+
+
+def select_object_gaussian_set(
+    xyz: np.ndarray,
+    weights: np.ndarray,
+    *,
+    k_neighbors: int = 8,
+    eps_scale: float = 3.0,
+    min_size: int = 16,
+) -> np.ndarray:
+    """Pick the dense object cluster as a *fixed* Gaussian index set (scale-invariant).
+
+    Object-only Wu exports carry high-opacity "spill" Gaussians scattered far from the
+    object core. Opacity can't separate them (spill is opaque too), but *density* can: the
+    ball is a tight dense cluster while spill is sparse. We build a neighbor graph whose
+    linking radius is ``eps_scale * median(k-th NN distance)`` — derived from the data, so
+    it auto-adapts to ball size / Gaussian density — and return the connected component
+    with the largest total opacity (the object). No absolute thresholds, no per-scene knobs.
+
+    Returns a boolean mask over the input Gaussians (consistent index order across time).
+    """
+
+    from scipy.sparse import csr_matrix
+    from scipy.sparse.csgraph import connected_components
+    from scipy.spatial import cKDTree
+
+    pts = np.asarray(xyz, dtype=np.float64).reshape(-1, 3)
+    w = np.clip(np.asarray(weights, dtype=np.float64).reshape(-1), 0.0, None)
+    n = pts.shape[0]
+    if n == 0:
+        raise ValueError("No Gaussians to cluster")
+    if n <= min_size:
+        return np.ones(n, dtype=bool)
+
+    tree = cKDTree(pts)
+    kk = int(min(max(2, k_neighbors), n - 1))
+    knn_dist, _ = tree.query(pts, k=kk + 1)  # col 0 is self (dist 0)
+    kth = knn_dist[:, -1]
+    eps = float(eps_scale * np.median(kth))
+    if not np.isfinite(eps) or eps <= 0:
+        eps = float(np.median(kth[kth > 0])) if np.any(kth > 0) else 1.0
+
+    pairs = tree.query_pairs(r=eps, output_type="ndarray")
+    if pairs.shape[0] == 0:
+        # everything sparse: fall back to the single highest-opacity point neighborhood
+        seed = int(np.argmax(w))
+        d = np.linalg.norm(pts - pts[seed], axis=1)
+        return d <= eps
+
+    rows = np.concatenate([pairs[:, 0], pairs[:, 1]])
+    cols = np.concatenate([pairs[:, 1], pairs[:, 0]])
+    data = np.ones(rows.shape[0], dtype=np.int8)
+    graph = csr_matrix((data, (rows, cols)), shape=(n, n))
+    n_comp, labels = connected_components(graph, directed=False)
+
+    # pick the component with the largest total opacity weight
+    best_label, best_w = -1, -1.0
+    for c in range(n_comp):
+        m = labels == c
+        if int(m.sum()) < min_size:
+            continue
+        tw = float(w[m].sum())
+        if tw > best_w:
+            best_w, best_label = tw, c
+    if best_label < 0:
+        # no component met min_size; take the largest by count
+        counts = np.bincount(labels)
+        best_label = int(np.argmax(counts))
+    return labels == best_label
+
+
+def robust_opacity_weighted_centroid(
+    xyz: np.ndarray,
+    weights: np.ndarray,
+    *,
+    n_iter: int = 8,
+    k_mad: float = 3.0,
+    min_inliers: int = 16,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Opacity-weighted centroid with iterative spatial-outlier rejection.
+
+    Object-only Wu exports can carry high-opacity "spill" Gaussians scattered far from
+    the object core (seen out to ~200 units while the ball core spans <1 unit). Pure
+    opacity weighting can't drop them (the spill is high-opacity too), so we iteratively
+    keep Gaussians within ``median + k_mad * MAD`` of the running weighted centroid.
+
+    Returns ``(centroid, inlier_mask)``.
+    """
+
+    pts = np.asarray(xyz, dtype=np.float64).reshape(-1, 3)
+    w = np.clip(np.asarray(weights, dtype=np.float64).reshape(-1), 0.0, None)
+    if pts.shape[0] == 0:
+        raise ValueError("No Gaussians for centroid")
+
+    mask = np.ones(pts.shape[0], dtype=bool)
+    center = opacity_weighted_centroid(pts, w)
+    for _ in range(max(1, int(n_iter))):
+        dist = np.linalg.norm(pts - center, axis=1)
+        med = float(np.median(dist[mask]))
+        mad = float(np.median(np.abs(dist[mask] - med))) * 1.4826 + 1e-9
+        new_mask = dist <= med + float(k_mad) * mad
+        if int(new_mask.sum()) < int(min_inliers):
+            break
+        mask = new_mask
+        center = opacity_weighted_centroid(pts[mask], w[mask])
+    return center, mask

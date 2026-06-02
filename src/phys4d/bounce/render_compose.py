@@ -11,11 +11,13 @@ from pathlib import Path
 import numpy as np
 
 from .gaussian_ply import (
+    crop_gaussian_vertices_radius,
     gaussian_xyz,
     load_gaussian_vertices,
     merge_gaussian_vertices,
     opacity_weighted_centroid,
     save_gaussian_vertices,
+    scale_gaussian_vertices,
     translate_gaussian_vertices,
 )
 from .load_4dgs import default_wu_root, load_cfg_args
@@ -116,29 +118,17 @@ def render_merged_ply_wu(
 ) -> np.ndarray:
     """Rasterize merged Gaussians with Wu renderer (``stage=coarse`` — no deformation)."""
 
+    wu = Path(wu_root or default_wu_root())
+    _ensure_wu_on_path(wu)
+
     import torch
     from argparse import Namespace
     from gaussian_renderer import render as wu_render
     from scene.gaussian_model import GaussianModel
 
-    wu = Path(wu_root or default_wu_root())
-    _ensure_wu_on_path(wu)
-
     args = load_cfg_args(cfg_args_path)
     gaussians = GaussianModel(3, args)
-
-    # Load merged buffer via a temp PLY so we reuse Wu's ``load_ply`` field layout.
-    import tempfile
-
-    with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-    try:
-        save_gaussian_vertices(merged_vertices, tmp_path)
-        gaussians.load_ply(str(tmp_path))
-    finally:
-        tmp_path.unlink(missing_ok=True)
-
-    gaussians.active_sh_degree = gaussians.max_sh_degree
+    _load_vertices_into_wu_model(gaussians, merged_vertices)
 
     pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False, debug=False)
     bg = torch.tensor(
@@ -148,10 +138,78 @@ def render_merged_ply_wu(
     )
     cam = _build_minicam_from_frame(camera_frame)
     with torch.no_grad():
-        # coarse stage skips the deformation field (canonical + translation only).
         pkg = wu_render(cam, gaussians, pipe, bg, stage="coarse", cam_type=None)
         rgb = pkg["render"].clamp(0.0, 1.0).detach().cpu().numpy()
     return (rgb.transpose(1, 2, 0) * 255.0).astype(np.uint8)
+
+
+def _load_vertices_into_wu_model(gaussians: object, vertices: np.ndarray) -> None:
+    """Load a merged numpy vertex buffer into an already-constructed Wu ``GaussianModel``."""
+
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".ply", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        save_gaussian_vertices(vertices, tmp_path)
+        gaussians.load_ply(str(tmp_path))
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    gaussians.active_sh_degree = gaussians.max_sh_degree
+
+
+class _WuCompositeSession:
+    """GPU session that loads object+background once and only translates object xyz per frame."""
+
+    def __init__(
+        self,
+        *,
+        cfg_args_path: Path,
+        canonical_vertices: np.ndarray,
+        background_vertices: np.ndarray,
+        wu_root: Path | None,
+        white_background: bool,
+    ) -> None:
+        wu = Path(wu_root or default_wu_root())
+        _ensure_wu_on_path(wu)
+
+        import torch
+        from argparse import Namespace
+        from gaussian_renderer import render as wu_render
+        from scene.gaussian_model import GaussianModel
+
+        self._torch = torch
+        self._wu_render = wu_render
+        self._canonical_xyz = gaussian_xyz(canonical_vertices).astype(np.float32)
+        self._n_obj = int(self._canonical_xyz.shape[0])
+
+        args = load_cfg_args(cfg_args_path)
+        self._gaussians = GaussianModel(3, args)
+        merged = merge_gaussian_vertices(canonical_vertices, background_vertices)
+        _load_vertices_into_wu_model(self._gaussians, merged)
+
+        self._pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False, debug=False)
+        self._bg = torch.tensor(
+            [1.0, 1.0, 1.0] if white_background else [0.0, 0.0, 0.0],
+            dtype=torch.float32,
+            device="cuda",
+        )
+
+    def set_object_delta(self, delta: np.ndarray) -> None:
+        """Rigid translation applied equally to every object Gaussian center."""
+
+        delta = np.asarray(delta, dtype=np.float32).reshape(3)
+        new_xyz = self._canonical_xyz + delta[None, :]
+        self._gaussians._xyz.data[: self._n_obj] = self._torch.from_numpy(new_xyz).cuda()
+
+    def render(self, camera_frame: dict) -> np.ndarray:
+        cam = _build_minicam_from_frame(camera_frame)
+        with self._torch.no_grad():
+            pkg = self._wu_render(
+                cam, self._gaussians, self._pipe, self._bg, stage="coarse", cam_type=None
+            )
+            rgb = pkg["render"].clamp(0.0, 1.0).detach().cpu().numpy()
+        return (rgb.transpose(1, 2, 0) * 255.0).astype(np.uint8)
 
 
 def _read_rgb_png(path: Path) -> np.ndarray:
@@ -273,8 +331,19 @@ def run_step5(
     white_background: bool = True,
     force_overlay: bool = False,
     sphere_radius_m: float = 0.1,
+    object_scale: float | None = None,
+    object_crop_radius: float | None = None,
+    cameras: list[int] | None = None,
+    skip_existing: bool = False,
 ) -> Step5Result:
-    """Render held-out (test) views: translated object ∪ background."""
+    """Render held-out (test) views: translated object ∪ background.
+
+    ``object_scale`` (e.g. the phase1 ``align_scale``) brings an object reconstructed
+    in an arbitrary 4DGS world scale into the metric background frame: the canonical
+    object is scaled about its own centroid and then placed at the predicted metric
+    position each frame. When ``None`` (object already metric, e.g. the big ball) the
+    object is simply translated by ``pred - p_ref``.
+    """
 
     out_dir = out_dir.resolve()
     renders_dir = out_dir / "renders"
@@ -286,6 +355,15 @@ def run_step5(
 
     _, _, ref_positions = load_trajectory_csv(ref_traj_csv)
     p_ref = ref_positions[0].copy()
+    canonical_centroid = opacity_weighted_centroid(canonical)
+    if object_crop_radius is not None and object_crop_radius > 0:
+        # Crop the diffuse halo in *source* 4DGS units, around the ball centroid.
+        canonical = crop_gaussian_vertices_radius(canonical, canonical_centroid, float(object_crop_radius))
+        canonical_centroid = opacity_weighted_centroid(canonical)
+    if object_scale is not None:
+        # Pre-scale the object about its centroid once; per-frame we re-center it on
+        # the predicted metric position (centroid is preserved by centroid-scaling).
+        canonical = scale_gaussian_vertices(canonical, float(object_scale), center=canonical_centroid)
 
     transforms_test = dynerf_export.resolve() / "transforms_test.json"
     if not transforms_test.is_file():
@@ -306,28 +384,51 @@ def run_step5(
 
     render_mode = "wu_3dgs" if use_wu else "overlay_fallback"
     num_rendered = 0
+    num_skipped = 0
     missing_pred = 0
 
-    for frame_rec in frames:
+    wu_session: _WuCompositeSession | None = None
+    if use_wu:
+        print(
+            f"Step 5 Wu session: {canonical.shape[0]} object + {background.shape[0]} background Gaussians",
+            flush=True,
+        )
+        wu_session = _WuCompositeSession(
+            cfg_args_path=cfg_args,
+            canonical_vertices=canonical,
+            background_vertices=background,
+            wu_root=wu_root,
+            white_background=white_background,
+        )
+
+    cam_filter = set(cameras) if cameras else None
+    total_views = len(frames)
+
+    for view_i, frame_rec in enumerate(frames):
         cam_idx, frame_idx = _parse_cam_frame(str(frame_rec["file_path"]))
+        if cam_filter is not None and cam_idx not in cam_filter:
+            continue
         pred = predicted.get(frame_idx)
         if pred is None:
             missing_pred += 1
             continue
 
-        delta = pred - p_ref
-        obj_t = translate_gaussian_vertices(canonical, delta)
-        merged = merge_gaussian_vertices(obj_t, background)
-
         out_path = renders_dir / f"{frame_idx:04d}_cam{cam_idx}.png"
+        if skip_existing and out_path.is_file():
+            num_skipped += 1
+            num_rendered += 1
+            continue
+
+        # Scaled object: centroid preserved by centroid-scaling, so place the
+        # (already-scaled) canonical centroid on the predicted metric position.
+        # Unscaled object (metric): keep the original pred - p_ref translation.
+        delta = (pred - canonical_centroid) if object_scale is not None else (pred - p_ref)
+        camera_blob = {**blob, **frame_rec}
+
         if use_wu:
-            rgb = render_merged_ply_wu(
-                merged,
-                cfg_args_path=cfg_args,
-                camera_frame={**blob, **frame_rec},
-                wu_root=wu_root,
-                white_background=white_background,
-            )
+            assert wu_session is not None
+            wu_session.set_object_delta(delta)
+            rgb = wu_session.render(camera_blob)
         else:
             rgb = _render_overlay_fallback(
                 predicted=predicted,
@@ -342,10 +443,21 @@ def run_step5(
 
         _write_rgb_png(out_path, rgb)
         num_rendered += 1
+        if num_rendered % 10 == 0 or num_rendered == 1:
+            print(
+                f"  rendered {num_rendered} views (frame {frame_idx}, cam {cam_idx}, "
+                f"{view_i + 1}/{total_views})",
+                flush=True,
+            )
 
     meta = {
         "render_mode": render_mode,
+        "object_scale": float(object_scale) if object_scale is not None else None,
+        "object_crop_radius": float(object_crop_radius) if object_crop_radius else None,
+        "num_object_gaussians": int(canonical.shape[0]),
         "num_rendered": num_rendered,
+        "num_skipped_existing": num_skipped,
+        "cameras_filter": sorted(cam_filter) if cam_filter else None,
         "num_test_views": len(frames),
         "num_missing_predictions": missing_pred,
         "p_ref": p_ref.tolist(),

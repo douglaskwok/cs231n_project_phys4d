@@ -14,8 +14,11 @@ from phys4d.poses import ObjectPoseTrajectory, load_object_poses_csv
 from .load_4dgs import (
     LoadedWu4DGS,
     deform_positions_at_norm_time,
+    geometric_median,
     load_wu_4dgs,
     opacity_weighted_centroid,
+    robust_opacity_weighted_centroid,
+    select_object_gaussian_set,
 )
 
 
@@ -203,8 +206,18 @@ def run_step4a(
     device: str = "cuda",
     savgol_window: int = 5,
     savgol_polyorder: int = 2,
+    robust_centroid: bool = True,
+    robust_k_mad: float = 3.0,
+    robust_iter: int = 8,
+    track_fixed_set: bool = True,
 ) -> Step4aResult:
-    """Extract train-window trajectory CSVs and validation plot."""
+    """Extract train-window trajectory CSVs and validation plot.
+
+    When ``track_fixed_set`` (default), the object's Gaussian set is selected ONCE via
+    density clustering and tracked through time with a weighted geometric median. This
+    avoids the frame-to-frame membership flicker (and thus the centroid jitter) of
+    per-frame MAD trimming, with no scene-specific thresholds.
+    """
 
     out_dir = out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -222,10 +235,28 @@ def run_step4a(
     raw_positions: list[np.ndarray] = []
     times: list[float] = []
     frames: list[int] = []
+    inlier_fracs: list[float] = []
+
+    # Select the object Gaussian set once (fixed index set tracked across all frames).
+    fixed_mask: np.ndarray | None = None
+    ball_set_size: int | None = None
+    if track_fixed_set:
+        ref_xyz, ref_w = deform_positions_at_norm_time(loaded, timestamps[0].t_norm)
+        fixed_mask = select_object_gaussian_set(ref_xyz, ref_w)
+        ball_set_size = int(fixed_mask.sum())
 
     for ts in timestamps:
         xyz, weights = deform_positions_at_norm_time(loaded, ts.t_norm)
-        center = opacity_weighted_centroid(xyz, weights)
+        if fixed_mask is not None:
+            center = geometric_median(xyz[fixed_mask], weights[fixed_mask])
+            inlier_fracs.append(float(fixed_mask.mean()))
+        elif robust_centroid:
+            center, mask = robust_opacity_weighted_centroid(
+                xyz, weights, n_iter=robust_iter, k_mad=robust_k_mad
+            )
+            inlier_fracs.append(float(mask.mean()))
+        else:
+            center = opacity_weighted_centroid(xyz, weights)
         raw_positions.append(center)
         times.append(ts.t_sec)
         frames.append(ts.original_frame)
@@ -303,6 +334,17 @@ def run_step4a(
         "train_mse_aligned_m2": train_mse_aligned,
         "savgol_window": savgol_window,
         "savgol_polyorder": savgol_polyorder,
+        "track_fixed_set": bool(track_fixed_set),
+        "ball_set_size": ball_set_size,
+        "centroid_method": "geometric_median_fixed_set" if track_fixed_set else (
+            "robust_mad" if robust_centroid else "opacity_mean"
+        ),
+        "robust_centroid": robust_centroid,
+        "robust_k_mad": robust_k_mad if robust_centroid else None,
+        "robust_iter": robust_iter if robust_centroid else None,
+        "robust_inlier_frac_mean": (
+            float(np.mean(inlier_fracs)) if inlier_fracs else None
+        ),
     }
     meta_json.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 

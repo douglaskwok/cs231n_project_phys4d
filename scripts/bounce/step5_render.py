@@ -80,7 +80,40 @@ def main() -> int:
         action="store_true",
         help="Use black clear color (default: white, matching object-only training)",
     )
+    parser.add_argument(
+        "--object-scale",
+        type=float,
+        default=None,
+        help=(
+            "Isotropic scale (phase1 align_scale) to bring the 4DGS-world object into the "
+            "metric background frame. Omit when the object is already metric (e.g. big ball)."
+        ),
+    )
+    parser.add_argument(
+        "--object-crop-radius",
+        type=float,
+        default=None,
+        help=(
+            "Crop object Gaussians to this radius (in source 4DGS units) around the ball "
+            "centroid before scaling, to drop the diffuse floater halo."
+        ),
+    )
+    parser.add_argument(
+        "--cameras",
+        type=str,
+        default=None,
+        help="Comma-separated camera indices to render (default: all test cameras).",
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Skip PNGs that already exist in the output renders/ folder (resume support).",
+    )
     args = parser.parse_args()
+
+    cam_list = None
+    if args.cameras:
+        cam_list = [int(x.strip()) for x in args.cameras.split(",") if x.strip()]
 
     if not args.force_overlay and args.cfg_args is None:
         print(
@@ -101,6 +134,10 @@ def main() -> int:
         white_background=not args.black_background,
         force_overlay=args.force_overlay,
         sphere_radius_m=args.sphere_radius_m,
+        object_scale=args.object_scale,
+        object_crop_radius=args.object_crop_radius,
+        cameras=cam_list,
+        skip_existing=args.skip_existing,
     )
 
     print(f"Step 5 complete → {result.out_dir}")

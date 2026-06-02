@@ -74,6 +74,18 @@ def main() -> int:
     )
     parser.add_argument("--savgol-window", type=int, default=5)
     parser.add_argument("--savgol-polyorder", type=int, default=2)
+    parser.add_argument(
+        "--no-robust-centroid",
+        action="store_true",
+        help="Disable iterative spatial-outlier rejection (use plain opacity-weighted mean)",
+    )
+    parser.add_argument(
+        "--robust-k-mad",
+        type=float,
+        default=3.0,
+        help="Inlier cutoff = median + k*MAD of distance to running centroid",
+    )
+    parser.add_argument("--robust-iter", type=int, default=8)
     args = parser.parse_args()
 
     if args.device == "cuda":
@@ -97,6 +109,9 @@ def main() -> int:
         device=args.device,
         savgol_window=args.savgol_window,
         savgol_polyorder=args.savgol_polyorder,
+        robust_centroid=not args.no_robust_centroid,
+        robust_k_mad=args.robust_k_mad,
+        robust_iter=args.robust_iter,
     )
 
     print(f"Wrote {result.num_frames} frames → {result.out_dir}")

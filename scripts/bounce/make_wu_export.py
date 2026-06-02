@@ -135,6 +135,29 @@ def main() -> int:
         json.dumps(export_meta, indent=2) + "\n", encoding="utf-8"
     )
 
+    # frame_map.json bridges PyBullet frame indices <-> kept training order and
+    # carries the train/test split that the milestone3 step4a/step4c scripts read.
+    # Times use the same frame/fps mapping the Wu run was trained on.
+    def _frame_rows(frame_list: list[int]) -> list[dict]:
+        return [
+            {
+                "kept_index": i,
+                "original_frame": int(f),
+                "original_time_s": float(f) / float(fps),
+            }
+            for i, f in enumerate(frame_list)
+        ]
+
+    frame_map = {
+        "fps": float(fps),
+        "num_frames": num_frames,
+        "train": _frame_rows(train_frames),
+        "test": _frame_rows(test_frames),
+    }
+    (out_dir / "frame_map.json").write_text(
+        json.dumps(frame_map, indent=2) + "\n", encoding="utf-8"
+    )
+
     cam_by_index = {int(c["index"]): c for c in cams}
 
     def _build_transforms(cam_indices: list[int], frames: list[int]) -> dict:

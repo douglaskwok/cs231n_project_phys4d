@@ -69,6 +69,53 @@ def translate_gaussian_vertices(vertices: np.ndarray, delta: np.ndarray) -> np.n
     return out
 
 
+def crop_gaussian_vertices_radius(
+    vertices: np.ndarray,
+    center: np.ndarray,
+    radius: float,
+) -> np.ndarray:
+    """Keep only Gaussians whose centers lie within ``radius`` of ``center``.
+
+    Object-only 4DGS runs often leave a diffuse halo of low-opacity floaters around
+    the reconstructed ball; cropping to a ball-sized sphere (in the *source* 4DGS
+    units, before scaling) removes them so the composite shows a clean object.
+    """
+
+    center = np.asarray(center, dtype=np.float64).reshape(3)
+    d = np.linalg.norm(gaussian_xyz(vertices) - center[None, :], axis=1)
+    return vertices[d <= float(radius)].copy()
+
+
+def scale_gaussian_vertices(
+    vertices: np.ndarray,
+    scale: float,
+    center: np.ndarray | None = None,
+) -> np.ndarray:
+    """Isotropically scale a Gaussian set about ``center`` (default: origin).
+
+    Used to bring an object reconstructed in an arbitrary 4DGS world scale into the
+    metric/background frame. Positions scale about ``center``; the per-Gaussian
+    log-scale fields (``scale_0/1/2``) get ``+ln(scale)`` so the splats keep the
+    correct physical size. Centroid is preserved when ``center`` is the centroid.
+    """
+
+    import math
+
+    s = float(scale)
+    out = vertices.copy()
+    center = np.zeros(3) if center is None else np.asarray(center, dtype=np.float64).reshape(3)
+    xyz = gaussian_xyz(out)
+    new = center[None, :] + s * (xyz - center[None, :])
+    out["x"] = new[:, 0].astype(np.float32)
+    out["y"] = new[:, 1].astype(np.float32)
+    out["z"] = new[:, 2].astype(np.float32)
+    ln_s = math.log(s) if s > 0 else 0.0
+    for field in ("scale_0", "scale_1", "scale_2"):
+        if field in out.dtype.names:
+            out[field] = (out[field].astype(np.float64) + ln_s).astype(np.float32)
+    return out
+
+
 def merge_gaussian_vertices(object_vertices: np.ndarray, background_vertices: np.ndarray) -> np.ndarray:
     """Concatenate object + background Gaussian sets (same dtype / fields)."""
 

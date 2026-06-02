@@ -15,6 +15,15 @@ dataset/outputs/
 **/4dgs_wu/
 **/background_3dgs/
 
+# Generated scene / run trees dropped at repo root (local experiments, not source)
+/scene_*/
+/wu_debug_*/
+/wu4dgs_*/
+
+# Local data mirrors (Drive / Modal downloads — not source)
+_gdrive_staging/
+_robdl/
+
 # Wu submodule build artifacts
 third_party/4DGaussians/output/
 third_party/4DGaussians/**/__pycache__/
