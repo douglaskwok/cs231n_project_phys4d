@@ -28,7 +28,28 @@ _robdl/
 third_party/4DGaussians/output/
 third_party/4DGaussians/**/__pycache__/
 
+# macOS local files
+.DS_Store
+
+# Generated simulation/dataset exports and Modal downloads
+/dataset/outputs/
+/dataset/outputs/phys4d_final/
+/pybullet_outputs/
+/frames/
+/exported/
+/latest/
+/latest_*
+/*_frames/
+/*_model/
+
+# Generated segmentation and 4DGS run outputs
+/segmentation/**/runs/
+
+# External reference repos cloned for local inspection / Modal image builds
+/external/
+
 # Checkpoints & geometry (downloaded or trained locally)
+# Large generated model artifacts
 *.pth
 *.pt
 *.ckpt
