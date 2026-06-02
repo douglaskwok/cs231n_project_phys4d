@@ -2863,3 +2863,375 @@ Metrics:
 ```
 
 Verdict: failed/diagnostic. The mean area ratio looks close to GT, but it is misleading because `964 / 2892` render frames are blank. The QA sheet shows multiple `R/GT=0.00` panels. Do not use this as a good variant result; the recipe did not transfer cleanly to `e=0.89` at 30k.
+
+#### `wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k`
+
+Purpose: nearby angle variant, keeping the promising `e=0.93` restitution but changing the drop angle to `+5` degrees.
+
+Command:
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0 \
+  wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k \
+  --iterations 30000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 0.8 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1.0 \
+  --bg-spill-loss-weight 1.0 \
+  --area-loss-weight 0.10 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 4000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --init-points 10000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.85 \
+  --render
+```
+
+Result:
+
+- Completed `30000` fine iterations.
+- Point count at final checkpoint: `387835`
+- Modal train run: `ap-6i9ZNGPOYJOqYTVIpMKr0O`
+- Modal render run: `ap-Kd5VSxKAqvX55lcyq3Av2g`
+- Local model folder: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k`
+- Remote model: `phys4d-gs-output:/wu4dgs_wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k`
+- Viewer: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k_viewer/index.html`
+- QA sheet: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k_qa.png`
+- QA JSON: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k_qa.json`
+- PLY: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k/wu4dgs_wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k/point_cloud/iteration_30000/point_cloud.ply`
+- Deformation: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k/wu4dgs_wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k/point_cloud/iteration_30000/deformation.pth`
+- Checkpoint: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k/wu4dgs_wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter30k/chkpnt_fine_30000.pth`
+
+Metrics:
+
+```json
+{
+  "num_frames": 2892,
+  "threshold": 8,
+  "render_area_mean": 21707.03284923928,
+  "render_area_max": 129056,
+  "gt_area_mean": 13739.724066390041,
+  "gt_area_max": 29428,
+  "ratio_mean": 1.5900275903535666,
+  "ratio_median": 1.521176739311732,
+  "ratio_p90": 1.9091125587494557,
+  "render_max_mean": 193.58367911479945,
+  "render_max_max": 255,
+  "zero_render_frames": 0,
+  "nonzero_gt_frames": 2892
+}
+```
+
+Verdict: usable diagnostic, not the new best. Unlike the `e0p89_a0p0` variant, this does not blank out (`zero_render_frames = 0`) and the ball is visible across the sampled QA frames. However, the rendered foreground is inflated compared with GT (`ratio_mean = 1.59`, `ratio_median = 1.52`, `ratio_p90 = 1.91`), so the baseline `e0p93_a0p0` 50k scratch run remains the better result for presentation and ablation.
+
+#### `wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch`
+
+Purpose: controlled rerun of the `+5` degree angle variant from scratch at `50000` fine iterations. This isolates whether the angled case simply needed longer optimization to become densely packed.
+
+Command:
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0 \
+  wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch \
+  --iterations 50000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 0.8 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1.0 \
+  --bg-spill-loss-weight 1.0 \
+  --area-loss-weight 0.10 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 4000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --init-points 10000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.85 \
+  --render
+```
+
+Result:
+
+- Completed `50000` fine iterations.
+- Point count at final checkpoint: `372439`
+- Modal train run: `ap-k0Gy5GmQlL5VBY0QIl946S`
+- Modal render run: `ap-TCN3gLjsaW9IA0PzIPLRQ9`
+- Local model folder: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch`
+- Remote model: `phys4d-gs-output:/wu4dgs_wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch`
+- Viewer: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch_viewer/index.html`
+- QA sheet: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch_qa.png`
+- QA JSON: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch_qa.json`
+- PLY: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch/wu4dgs_wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch/point_cloud/iteration_50000/point_cloud.ply`
+- Deformation: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch/wu4dgs_wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch/point_cloud/iteration_50000/deformation.pth`
+- Checkpoint: `dataset/outputs/wu_variant_ball_marker_e0p93_a5p0_table0p40_h0p80_r0p20_120fps_2p0s/scene_0000_e0p93_a5p0/4dgs_wu/wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch/wu4dgs_wu_variant_ball_e0p93_a5p0_2s_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch/chkpnt_fine_50000.pth`
+
+Metrics:
+
+```json
+{
+  "num_frames": 2892,
+  "threshold": 8,
+  "render_area_mean": 23140.277316735825,
+  "render_area_max": 178671,
+  "gt_area_mean": 13739.724066390041,
+  "gt_area_max": 29428,
+  "ratio_mean": 1.6900005217592022,
+  "ratio_median": 1.638663800834216,
+  "ratio_p90": 1.9730529985816814,
+  "render_max_mean": 196.87551867219918,
+  "render_max_max": 255,
+  "zero_render_frames": 0,
+  "nonzero_gt_frames": 2892
+}
+```
+
+Verdict: usable diagnostic, but worse than the `+5` degree 30k run and worse than the straight-down 50k baseline. It preserves visibility across all frames (`zero_render_frames = 0`) and uses all 12 cameras, but longer optimization alone did not make the angled case densely packed. The rendered foreground grew more inflated (`ratio_mean = 1.69`, `ratio_median = 1.64`, `ratio_p90 = 1.97`) than the 30k angle run (`ratio_mean = 1.59`). This suggests the next useful knob is not simply more iterations; try tightening opacity/densification or stronger anti-spill/area pressure while keeping the same spatial+temporal segmentation.
+
+### Tightened Support Trials
+
+#### `wu_ball12_2s_blue_e93_fg20_mask1_spill2_area0p2_scaleiso5e-2_den2500_iter50k_tight_first2s`
+
+Purpose: test whether stronger outside-mask pressure and earlier densification cutoff make the best straight-down baseline less fuzzy/blinky.
+
+Command:
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0 \
+  wu_ball12_2s_blue_e93_fg20_mask1_spill2_area0p2_scaleiso5e-2_den2500_iter50k_tight_first2s \
+  --iterations 50000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 0.8 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1.0 \
+  --bg-spill-loss-weight 2.0 \
+  --area-loss-weight 0.20 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 2500 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --frame-list dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/frame_list_first2s.txt \
+  --init-points 10000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.85 \
+  --render
+```
+
+Export check:
+
+- Correct strict 2-second setup: `241` timestamps, `2892` train views, all 12 cameras.
+- Spatial+temporal segmentation preserved: `drop_invisible_frames=true`, `min_visible_cameras=6`, `min_mask_pixels=50`, no empty or below-threshold masks.
+
+Result: aborted as unstable. The run hit NaN/restart around fine iteration `~2970`, then hit NaN/restart again around `~5250`. The Modal app was stopped manually (`ap-xQUxBAcTDdv5f9omYNTJ1o`) before wasting more time.
+
+Verdict: failed/unstable. Do not use the combined `bg_spill=2.0 + area=0.20 + densify_until=2500` recipe as the next baseline. The loss pressure is likely too sharp numerically for this Wu setup.
+
+#### `wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den2500_iter50k_densifyonly_first2s`
+
+Purpose: isolate whether stopping densification at `2500` instead of `4000` reduces fuzzy support while keeping the otherwise stable best-baseline losses.
+
+Command:
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0 \
+  wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den2500_iter50k_densifyonly_first2s \
+  --iterations 50000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 0.8 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1.0 \
+  --bg-spill-loss-weight 1.0 \
+  --area-loss-weight 0.10 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 2500 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --frame-list dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/frame_list_first2s.txt \
+  --init-points 10000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.85 \
+  --render
+```
+
+Export check:
+
+- Correct strict 2-second setup: `241` timestamps, `2892` train views, all 12 cameras.
+- Spatial+temporal segmentation preserved.
+
+Result: aborted early because the premise failed. By fine iteration `~2100`, the point count had already jumped to about `397624`, i.e. the run had already entered the same large-cloud regime as the previous dense baselines before the `2500` cutoff mattered. The Modal app was stopped manually (`ap-lUttFUMWvHZeRxQNHHJD5f`).
+
+Verdict: failed diagnostic, not a quality failure. `densify_until=2500` is not an effective "fewer points / tighter support" knob for this scene because most of the point explosion happens before then. If testing density control again, use a much earlier cutoff or a different densification threshold, not merely `2500`.
+
+#### `wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s`
+
+Purpose: test whether directly penalizing large Gaussian scale can reduce fuzz/blinking in the current straight-down 2-second baseline without changing the data.
+
+Command:
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0 \
+  wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s \
+  --iterations 50000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 0.8 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1.0 \
+  --bg-spill-loss-weight 1.0 \
+  --area-loss-weight 0.10 \
+  --scale-isotropy-loss-weight 0.05 \
+  --max-scale-loss-weight 50 \
+  --max-gaussian-scale 0.01 \
+  --wu-densify-until-iter 4000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --frame-list dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/frame_list_first2s.txt \
+  --init-points 10000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.85 \
+  --render
+```
+
+Export check:
+
+- Correct strict 2-second setup: `241` timestamps, `2892` train views, all 12 cameras.
+- Spatial+temporal segmentation preserved: `drop_invisible_frames=true`, `min_visible_cameras=6`, `min_mask_pixels=50`, and `frame_list_first2s.txt`.
+
+Result:
+
+- Completed `50000` fine iterations after one early NaN/restart; second attempt was stable.
+- Point count at final checkpoint: `370426`.
+- Modal train run: `ap-JZjTQBi2OLwGNPmOGTL8T5`
+- Modal render run: `ap-cOpDTgzZncjhSIGymVt9rK`
+- Local model folder: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s`
+- Remote model: `phys4d-gs-output:/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s`
+- Viewer: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s_viewer/index.html`
+- QA sheet: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s_qa.png`
+- QA JSON: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s_qa.json`
+- PLY: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s/point_cloud/iteration_50000/point_cloud.ply`
+- Deformation: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s/point_cloud/iteration_50000/deformation.pth`
+- Checkpoint: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale50_cap0p01_den4000_iter50k_first2s/chkpnt_fine_50000.pth`
+
+Metrics:
+
+```json
+{
+  "num_frames": 2892,
+  "threshold": 8,
+  "render_area_mean": 20545.198824343017,
+  "render_area_max": 522240,
+  "gt_area_mean": 13620.92254495159,
+  "gt_area_max": 28540,
+  "ratio_mean": 1.709439267080635,
+  "ratio_median": 1.1713841713136406,
+  "ratio_p90": 1.4445719947367552,
+  "render_max_mean": 98.77213001383126,
+  "render_max_max": 242,
+  "zero_render_frames": 1335,
+  "nonzero_gt_frames": 2892
+}
+```
+
+Verdict: failed diagnostic / not the new best. The max-scale penalty tightens the median foreground area (`ratio_median = 1.17`) and the QA sheet shows less obvious smear in several sampled views, but it makes support too weak or too faint in many camera-time pairs (`zero_render_frames = 1335`). This is worse than the current baseline for presentation and sharing. Keep `wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch` as the best straight-down baseline unless a later run improves visibility without reintroducing fuzz.
+
+#### `wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k`
+
+Purpose: test whether continuing the current best 50k baseline to 75k fine iterations improves density/fuzz/blinking without changing the data or adding extra regularization. This is the same straight-down 2-second blue-ball setup, resumed from the 50k scratch checkpoint.
+
+Command:
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0 \
+  wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k \
+  --iterations 75000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 0.8 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1.0 \
+  --bg-spill-loss-weight 1.0 \
+  --area-loss-weight 0.10 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 4000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --frame-list dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/frame_list_first2s.txt \
+  --init-points 10000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.85 \
+  --wu-start-checkpoint wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter50k_scratch/chkpnt_fine_50000.pth \
+  --render
+```
+
+Export check:
+
+- Correct strict 2-second setup: `241` timestamps, `2892` train views, all 12 cameras.
+- Spatial+temporal segmentation preserved: `drop_invisible_frames=true`, `min_visible_cameras=6`, `min_mask_pixels=50`, and `frame_list_first2s.txt`.
+- Resume confirmed from `chkpnt_fine_50000.pth`; Wu skipped coarse stage and ran `25000` additional fine steps.
+
+Result:
+
+- Completed fine continuation to iteration `75000`.
+- Final point count: `436585`.
+- Modal train run: `ap-0TjCQUmjvaU6PcnyuJP8z9`
+- Modal render run: `ap-lcOM8qqP50m8mYV3Cpvc4D`
+- Local model folder: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k`
+- Remote model: `phys4d-gs-output:/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k`
+- Viewer: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k_viewer/index.html`
+- QA sheet: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k_qa.png`
+- QA JSON: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k_qa.json`
+- PLY: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k/point_cloud/iteration_75000/point_cloud.ply`
+- Deformation: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k/point_cloud/iteration_75000/deformation.pth`
+- Checkpoint: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k/chkpnt_fine_75000.pth`
+
+Metrics:
+
+```json
+{
+  "num_frames": 2892,
+  "threshold": 8,
+  "render_area_mean": 17898.456085753805,
+  "render_area_max": 129237,
+  "gt_area_mean": 13620.92254495159,
+  "gt_area_max": 28540,
+  "ratio_mean": 1.288030112043353,
+  "ratio_median": 1.2698273948273948,
+  "ratio_p90": 1.50525296152535,
+  "render_max_mean": 192.3454356846473,
+  "render_max_max": 255,
+  "zero_render_frames": 0,
+  "nonzero_gt_frames": 2892
+}
+```
+
+Comparison against prior kept baselines:
+
+- `30k`: `ratio_mean=1.4733`, `ratio_median=1.4243`, `ratio_p90=1.6241`, `zero_render_frames=0`.
+- `50k scratch`: `ratio_mean=1.3143`, `ratio_median=1.2711`, `ratio_p90=1.4829`, `zero_render_frames=0`.
+- `75k from 50k`: `ratio_mean=1.2880`, `ratio_median=1.2698`, `ratio_p90=1.5053`, `zero_render_frames=0`.
+
+Verdict: usable and likely the best quantitative baseline so far among the kept non-failed runs. It slightly improves mean foreground area ratio over 50k while preserving visibility in every rendered frame. The median is nearly tied with 50k, and `ratio_p90` is slightly worse, so visual QA still decides whether the extra 25k steps are worth the added size/time. Keep both `50k_scratch` and `75k_from50k` until human visual comparison confirms which has less blinking/fuzz.
