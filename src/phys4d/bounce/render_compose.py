@@ -63,12 +63,22 @@ def _parse_cam_frame(file_path: str) -> tuple[int, int]:
 
 
 def _c2w_to_rt(c2w: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Match Wu ``readCamerasFromTransforms`` (world → COLMAP R,T)."""
+    """Camera-to-world (OpenCV/COLMAP convention) → 3DGS ``getWorld2View2`` (R, T).
 
-    matrix = np.linalg.inv(np.asarray(c2w, dtype=np.float64))
-    R = -np.transpose(matrix[:3, :3])
-    R[:, 0] = -R[:, 0]
-    T = -matrix[:3, 3]
+    The DyNeRF export ``transforms_*.json`` already stores OpenCV camera-to-world
+    matrices (camera looks down +z, y down), the same frame the background 3DGS and
+    the metric object Gaussians live in, so **no** Blender/OpenGL axis flip is applied.
+    ``getWorld2View2`` expects ``R`` = camera rotation (it transposes it internally to
+    build world→view) and ``T`` = the world→view translation.
+
+    The previous implementation negated ``T`` (and mirrored x), which placed every
+    Gaussian *behind* the camera (view-space z < 0, ndc_z > 1) so the rasterizer culled
+    the entire scene and produced a blank/white frame.
+    """
+
+    w2c = np.linalg.inv(np.asarray(c2w, dtype=np.float64))
+    R = np.transpose(w2c[:3, :3])
+    T = w2c[:3, 3]
     return R, T
 
 
