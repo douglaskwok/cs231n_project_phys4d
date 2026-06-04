@@ -72,7 +72,7 @@ def main() -> int:
         default="cuda",
         help="Device for deformation forward passes",
     )
-    parser.add_argument("--savgol-window", type=int, default=5)
+    parser.add_argument("--savgol-window", type=int, default=9)
     parser.add_argument("--savgol-polyorder", type=int, default=2)
     parser.add_argument(
         "--no-robust-centroid",

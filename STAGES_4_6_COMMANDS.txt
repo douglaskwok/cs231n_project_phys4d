@@ -82,7 +82,7 @@ Arguments:
   --wu-root     hustvl/4DGaussians clone (default: third_party/4DGaussians).
   --device      cuda (default) or cpu.
   --savgol-window, --savgol-polyorder
-                Savitzky-Golay smoothing (defaults 5 and 2).
+                Savitzky-Golay smoothing (defaults 9 and 2).
 
 Outputs (${OUT}/step4a/):
   trajectory_raw.csv, trajectory_smoothed.csv, trajectory_plot.png, step4a_meta.json

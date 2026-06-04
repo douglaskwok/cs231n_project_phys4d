@@ -1235,7 +1235,7 @@ def bounce_step5_remote(
 )
 def bounce_step4a_remote(
     out_rel: str = "step4a",
-    savgol_window: int = 5,
+    savgol_window: int = 9,
     savgol_polyorder: int = 2,
 ) -> str:
     """Run Step 4a trajectory extraction on uploaded /data/step4a inputs (needs Wu CUDA exts).
@@ -1346,7 +1346,7 @@ def main(
     step4a: bool = False,
     step4a_dir: str = "",
     bounce_out_rel: str = "step4a",
-    savgol_window: int = 5,
+    savgol_window: int = 9,
     savgol_polyorder: int = 2,
     bg_dir: str = "",
     bg_name: str = "huge",

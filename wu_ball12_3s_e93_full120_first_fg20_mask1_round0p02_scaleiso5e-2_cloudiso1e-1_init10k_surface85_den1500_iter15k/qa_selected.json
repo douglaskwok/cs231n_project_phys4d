@@ -1,0 +1,15 @@
+{
+  "num_frames": 4332,
+  "threshold": 8,
+  "render_area_mean": 42752.03831948292,
+  "render_area_max": 432319,
+  "gt_area_mean": 13339.641043397969,
+  "gt_area_max": 28540,
+  "ratio_mean": 3.2148341584642974,
+  "ratio_median": 2.9274762911056014,
+  "ratio_p90": 4.24131508959242,
+  "render_max_mean": 196.36680517082178,
+  "render_max_max": 242,
+  "zero_render_frames": 0,
+  "nonzero_gt_frames": 4332
+}

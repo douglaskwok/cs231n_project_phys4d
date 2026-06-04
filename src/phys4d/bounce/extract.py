@@ -204,7 +204,7 @@ def run_step4a(
     gt_poses: Path | None = None,
     wu_root: Path | None = None,
     device: str = "cuda",
-    savgol_window: int = 5,
+    savgol_window: int = 9,
     savgol_polyorder: int = 2,
     robust_centroid: bool = True,
     robust_k_mad: float = 3.0,
