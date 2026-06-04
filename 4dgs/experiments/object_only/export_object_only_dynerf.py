@@ -19,6 +19,11 @@ if str(_FOURDGS_DIR) not in sys.path:
 
 from _paths import REPO_ROOT  # noqa: E402
 
+_REPO_SRC = REPO_ROOT / "src"
+if str(_REPO_SRC) not in sys.path:
+    sys.path.insert(0, str(_REPO_SRC))
+from phys4d.bounce.dataset_split import compute_time_split  # noqa: E402
+
 
 def view_matrix_to_c2w(view_col_major_16: list[float]) -> np.ndarray:
     v = np.array(view_col_major_16, dtype=np.float64).reshape(4, 4, order="F")
@@ -118,6 +123,11 @@ def export_object_only_dynerf(
     cams_cfg = cfg["cameras"]
     train_frames = sim["train_frames"]
     test_frames = sim["test_frames"]
+    if not all_train:
+        num_frames = int(sim.get("num_frames", int(test_frames[1]) + 1))
+        canonical = compute_time_split(0, num_frames - 1)
+        train_frames = canonical["train"]
+        test_frames = canonical["test"]
 
     rgb_root = (REPO_ROOT / cfg["outputs"]["rgb_frames"]).resolve()
     cameras_json = (REPO_ROOT / cfg["outputs"]["camera_poses"]).resolve()

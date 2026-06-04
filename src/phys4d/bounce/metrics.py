@@ -30,6 +30,7 @@ class Step6Result:
     out_dir: Path
     metrics_json: Path
     plot_png: Path
+    fused_plot_png: Path | None
     pos_rmse_m: float
     vel_r2: float
     acc_r2: float
@@ -178,6 +179,88 @@ def _render_metrics(rendered_dir: Path, gt_rgb_root: Path) -> dict[str, float | 
     }
 
 
+def _load_traj_xyz(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """Load ``frame,t_sec,x,y,z`` CSV as frame ids and xyz (metric or 4DGS frame)."""
+
+    frames: list[int] = []
+    xyz: list[list[float]] = []
+    with path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            frames.append(int(float(row["frame"])))
+            xyz.append([float(row["x"]), float(row["y"]), float(row["z"])])
+    if not frames:
+        raise ValueError(f"No rows in {path}")
+    order = np.argsort(frames)
+    fr = np.asarray(frames, dtype=np.int32)[order]
+    pos = np.asarray(xyz, dtype=np.float64)[order]
+    return fr, pos
+
+
+def _apply_similarity(sim: dict[str, object], pts: np.ndarray) -> np.ndarray:
+    s = float(sim["scale"])
+    R = np.asarray(sim["R"], dtype=np.float64)
+    t = np.asarray(sim["t"], dtype=np.float64)
+    return (s * (R @ pts.T)).T + t[None, :]
+
+
+def _plot_fused_trajectory(
+    path: Path,
+    *,
+    gt_poses_csv: Path,
+    predicted_frames: np.ndarray,
+    predicted_xyz: np.ndarray,
+    extracted_csv: Path | None,
+    refit_metric_json: Path | None,
+    split: dict[str, object] | None,
+) -> None:
+    """GT + metric extracted (train) + metric predicted (test) on one timeline."""
+
+    import matplotlib.pyplot as plt
+
+    from phys4d.poses import load_object_poses_csv
+
+    gt_traj = load_object_poses_csv(gt_poses_csv.resolve())
+    gt_frames = np.array([p.frame for p in gt_traj.poses], dtype=np.int32)
+    gt_xyz = np.stack([p.position for p in gt_traj.poses], axis=0)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(3, 1, figsize=(11, 9), sharex=True)
+    split_train = (split or {}).get("train") if split else None
+    split_test = (split or {}).get("test") if split else None
+    if split_train and split_test:
+        title = f"Trajectory — train {split_train[0]}..{split_train[1]} / test {split_test[0]}..{split_test[1]}"
+    else:
+        title = "Trajectory — extracted (train) + predicted (test) vs GT"
+
+    extracted_plotted = False
+    if extracted_csv is not None and extracted_csv.is_file() and refit_metric_json is not None:
+        blob = json.loads(refit_metric_json.read_text(encoding="utf-8"))
+        sim = blob.get("similarity")
+        if sim is not None:
+            ext_fr, ext_xyz = _load_traj_xyz(extracted_csv)
+            ext_m = _apply_similarity(sim, ext_xyz)
+            for ax, axis, name in zip(axes, range(3), ("x", "y", "z")):
+                ax.plot(ext_fr, ext_m[:, axis], "k.", ms=3, alpha=0.5, label="extracted (4DGS→metric)")
+                extracted_plotted = True
+
+    for ax, axis, name in zip(axes, range(3), ("x", "y", "z")):
+        ax.plot(gt_frames, gt_xyz[:, axis], "g-", lw=1.8, label="GT PyBullet")
+        if extracted_plotted and ax.get_legend_handles_labels()[0]:
+            pass  # extracted label already added
+        ax.plot(predicted_frames, predicted_xyz[:, axis], "r-", lw=2.0, label="predicted (test)")
+        if split_test:
+            ax.axvline(int(split_test[0]), color="b", ls="--", alpha=0.45, label="test start")
+        ax.set_ylabel(f"{name} (m)")
+        ax.grid(alpha=0.3)
+        ax.legend(loc="best", fontsize=8)
+    axes[0].set_title(title)
+    axes[-1].set_xlabel("simulation frame")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 def _plot_metrics(path: Path, frames: np.ndarray, pred: np.ndarray, gt: np.ndarray) -> None:
     import matplotlib.pyplot as plt
 
@@ -220,6 +303,9 @@ def run_step6(
     out_dir: Path,
     fps: float = 60.0,
     skip_render_metrics: bool = False,
+    extracted_traj_csv: Path | None = None,
+    refit_metric_json: Path | None = None,
+    split: dict[str, object] | None = None,
 ) -> Step6Result:
     """Compute trajectory + rendering metrics for held-out predictions."""
 
@@ -240,6 +326,7 @@ def run_step6(
 
     metrics = {
         "fps": float(fps),
+        "split": split,
         "num_pred_frames": int(frames.shape[0]),
         "frame_min": int(frames[0]),
         "frame_max": int(frames[-1]),
@@ -271,13 +358,27 @@ def run_step6(
 
     metrics_json = out_dir / "metrics.json"
     plot_png = out_dir / "metrics_plot.png"
+    fused_plot_png = out_dir / "trajectory_fused_plot.png"
     metrics_json.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
     _plot_metrics(plot_png, frames, pred, gt)
+    if extracted_traj_csv is not None or refit_metric_json is not None:
+        _plot_fused_trajectory(
+            fused_plot_png,
+            gt_poses_csv=gt_poses_csv,
+            predicted_frames=frames,
+            predicted_xyz=pred,
+            extracted_csv=extracted_traj_csv,
+            refit_metric_json=refit_metric_json,
+            split=split,
+        )
+    else:
+        fused_plot_png = None
 
     return Step6Result(
         out_dir=out_dir,
         metrics_json=metrics_json,
         plot_png=plot_png,
+        fused_plot_png=fused_plot_png,
         pos_rmse_m=pos_rmse,
         vel_r2=vel_r2,
         acc_r2=acc_r2,

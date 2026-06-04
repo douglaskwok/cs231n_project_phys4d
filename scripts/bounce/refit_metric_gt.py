@@ -33,6 +33,7 @@ _SRC = _REPO_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from phys4d.bounce.dataset_split import split_from_gt_poses  # noqa: E402
 from phys4d.bounce.physics import detect_bounces, simulate_trajectory  # noqa: E402
 
 
@@ -82,10 +83,15 @@ def main() -> int:
     ap.add_argument("--traj", type=Path, required=True, help="Step 4a trajectory_smoothed.csv (3DGS frame)")
     ap.add_argument("--gt-poses", type=Path, required=True, help="scene object_poses.csv (metric GT)")
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--train-start", type=int, default=0)
-    ap.add_argument("--train-end", type=int, default=119)
-    ap.add_argument("--test-start", type=int, default=120)
-    ap.add_argument("--test-end", type=int, default=179)
+    ap.add_argument(
+        "--train-start",
+        type=int,
+        default=None,
+        help="Train window start frame (default: canonical 65%% split from GT poses)",
+    )
+    ap.add_argument("--train-end", type=int, default=None)
+    ap.add_argument("--test-start", type=int, default=None)
+    ap.add_argument("--test-end", type=int, default=None)
     ap.add_argument("--gravity", type=float, default=-9.80665)
     ap.add_argument("--ground", type=float, default=None, help="contact-center z (default: GT z-min)")
     ap.add_argument("--fit-gravity", action="store_true")
@@ -95,16 +101,22 @@ def main() -> int:
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
 
+    canonical = split_from_gt_poses(args.gt_poses)
+    train_start = int(args.train_start if args.train_start is not None else canonical["train"][0])
+    train_end = int(args.train_end if args.train_end is not None else canonical["train"][1])
+    test_start = int(args.test_start if args.test_start is not None else canonical["test"][0])
+    test_end = int(args.test_end if args.test_end is not None else canonical["test"][1])
+
     fr, t, traj3d = _load_traj(args.traj)
     gt = _load_gt(args.gt_poses)
     frame_to_i = {int(f): i for i, f in enumerate(fr.tolist())}
 
     # frames we have in BOTH traj and GT
     common = [f for f in fr.tolist() if f in gt]
-    train_f = [f for f in common if args.train_start <= f <= args.train_end]
-    test_f = [f for f in common if args.test_start <= f <= args.test_end]
+    train_f = [f for f in common if train_start <= f <= train_end]
+    test_f = [f for f in common if test_start <= f <= test_end]
     if len(train_f) < 8:
-        raise SystemExit(f"Too few train frames ({len(train_f)}) in [{args.train_start},{args.train_end}]")
+        raise SystemExit(f"Too few train frames ({len(train_f)}) in [{train_start},{train_end}]")
 
     src_train = np.stack([traj3d[frame_to_i[f]] for f in train_f], axis=0)
     dst_train = np.stack([gt[f] for f in train_f], axis=0)
@@ -168,7 +180,7 @@ def main() -> int:
     gt_full = np.stack([gt[f] for f in common], axis=0)
 
     # held-out test RMSE
-    test_mask = np.array([(args.test_start <= f <= args.test_end) for f in common])
+    test_mask = np.array([(test_start <= f <= test_end) for f in common])
     test_err = np.linalg.norm(pred_full[test_mask] - gt_full[test_mask], axis=1)
     test_rmse = float(np.sqrt(np.mean(test_err ** 2))) if test_mask.any() else float("nan")
 
@@ -187,7 +199,11 @@ def main() -> int:
 
     result = {
         "similarity": {"scale": s, "scale_inv": 1.0 / s, "R": R.tolist(), "t": t_vec.tolist()},
-        "split": {"train": [args.train_start, args.train_end], "test": [args.test_start, args.test_end]},
+        "split": {
+            "canonical": canonical,
+            "train": [train_start, train_end],
+            "test": [test_start, test_end],
+        },
         "fixed": {"gravity": not free_g, "ground": not free_grd},
         "params": {
             "p0_m": p_fit.tolist(), "v0_m_s": v_fit.tolist(),

@@ -1346,6 +1346,8 @@ def main(
     step4a: bool = False,
     step4a_dir: str = "",
     bounce_out_rel: str = "step4a",
+    savgol_window: int = 5,
+    savgol_polyorder: int = 2,
     bg_dir: str = "",
     bg_name: str = "huge",
     step5_dir: str = "",
@@ -1687,7 +1689,13 @@ def main(
         print(f"Uploaded {src} -> phys4d-gs-data:/step4a")
         return
     if step4a:
-        print(bounce_step4a_remote.remote(out_rel=bounce_out_rel))
+        print(
+            bounce_step4a_remote.remote(
+                out_rel=bounce_out_rel,
+                savgol_window=savgol_window,
+                savgol_polyorder=savgol_polyorder,
+            )
+        )
         print(f"Download: modal volume get phys4d-gs-output {bounce_out_rel} <local> --force")
         return
     if upload_step5:

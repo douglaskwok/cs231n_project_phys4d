@@ -64,7 +64,23 @@ def main() -> int:
         action="store_true",
         help="Skip PSNR/SSIM render metrics (trajectory JSON + plot only)",
     )
+    parser.add_argument(
+        "--extracted-traj",
+        type=Path,
+        default=None,
+        help="step4a/trajectory_smoothed.csv for fused GT+extracted+predicted plot",
+    )
+    parser.add_argument(
+        "--refit-metric",
+        type=Path,
+        default=None,
+        help="step4b_metric/refit_metric.json (Umeyama scale for extracted overlay)",
+    )
     args = parser.parse_args()
+
+    split_blob = None
+    if args.refit_metric is not None and args.refit_metric.is_file():
+        split_blob = json.loads(args.refit_metric.read_text(encoding="utf-8")).get("split")
 
     result = run_step6(
         predicted_csv=args.predicted,
@@ -74,11 +90,16 @@ def main() -> int:
         out_dir=args.out,
         fps=args.fps,
         skip_render_metrics=args.trajectory_only,
+        extracted_traj_csv=args.extracted_traj,
+        refit_metric_json=args.refit_metric,
+        split=split_blob,
     )
 
     print(f"Step 6 complete → {result.out_dir}")
     print(f"  metrics: {result.metrics_json}")
     print(f"  plot:    {result.plot_png}")
+    if result.fused_plot_png is not None:
+        print(f"  fused:   {result.fused_plot_png}")
     print(f"  pos_rmse_m: {result.pos_rmse_m:.6f}")
     print(f"  vel_r2:     {result.vel_r2:.4f}")
     print(f"  acc_r2:     {result.acc_r2:.4f}")
