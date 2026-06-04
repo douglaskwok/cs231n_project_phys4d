@@ -3235,3 +3235,807 @@ Comparison against prior kept baselines:
 - `75k from 50k`: `ratio_mean=1.2880`, `ratio_median=1.2698`, `ratio_p90=1.5053`, `zero_render_frames=0`.
 
 Verdict: usable and likely the best quantitative baseline so far among the kept non-failed runs. It slightly improves mean foreground area ratio over 50k while preserving visibility in every rendered frame. The median is nearly tied with 50k, and `ratio_p90` is slightly worse, so visual QA still decides whether the extra 25k steps are worth the added size/time. Keep both `50k_scratch` and `75k_from50k` until human visual comparison confirms which has less blinking/fuzz.
+
+#### Overnight 3x3 PyBullet generation and 100k continuation
+
+Purpose: prepare the next parameter sweep while continuing the strongest straight-down Wu baseline from `75k` to `100k`.
+
+Generated PyBullet data:
+
+- Output folder: `dataset/outputs/wu_ball_3x3_e89_e93_e97_angle5_table0p40_h0p80_r0p20_120fps_2p0s`
+- Duration: `2.0s`
+- FPS: `120`
+- Cameras: all 12 views
+- Frames per scene: `241`
+- Images/masks per scene: `2892`
+- Main 3x3 grid: restitution `0.89, 0.93, 0.97` crossed with angle `-5, 0, +5`
+- Extra row: restitution `0.85` with angle `-5, 0, +5`
+- Fixed setup: marker ball, radius `0.20m`, table top z `0.40m`, drop height above surface `0.80m`, room cameras consistent with the successful Wu baseline.
+- Manifest: `dataset/outputs/wu_ball_3x3_e89_e93_e97_angle5_table0p40_h0p80_r0p20_120fps_2p0s/scenario_manifest.json`
+
+Scenes:
+
+- `scene_0000_e0p89_am5p0`
+- `scene_0001_e0p89_a0p0`
+- `scene_0002_e0p89_a5p0`
+- `scene_0003_e0p93_am5p0`
+- `scene_0004_e0p93_a0p0`
+- `scene_0005_e0p93_a5p0`
+- `scene_0006_e0p97_am5p0`
+- `scene_0007_e0p97_a0p0`
+- `scene_0008_e0p97_a5p0`
+- `scene_0009_e0p85_am5p0`
+- `scene_0010_e0p85_a0p0`
+- `scene_0011_e0p85_a5p0`
+
+100k continuation:
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0 \
+  wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k \
+  --iterations 100000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 0.8 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1.0 \
+  --bg-spill-loss-weight 1.0 \
+  --area-loss-weight 0.10 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 4000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --frame-list dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/frame_list_first2s.txt \
+  --init-points 10000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.85 \
+  --wu-start-checkpoint wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_from50k/chkpnt_fine_75000.pth \
+  --skip-export \
+  --skip-upload \
+  --render
+```
+
+Result:
+
+- Completed fine continuation from `75000` to `100000`.
+- Remote model: `phys4d-gs-output:/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k`
+- Modal train run: `ap-tvrbDnJ3VRJoSL8q9TMEvP`
+- Modal render run: `ap-XYBIFTAW2qxjPexaIJZXu7`
+- Local model folder: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k`
+- Viewer: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k_viewer/index.html`
+- QA sheet: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k_qa.png`
+- QA JSON: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k_qa.json`
+- PLY: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k/point_cloud/iteration_100000/point_cloud.ply`
+- Deformation: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k/point_cloud/iteration_100000/deformation.pth`
+- Checkpoint: `dataset/outputs/wu_debug_ball_marker_all12_table0p40_h0p80_r0p20_120fps_3p0s_bouncy/0601_scene_0000_e0p93_a0p0/4dgs_wu/wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k/wu4dgs_wu_ball12_2s_blue_e93_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter100k_from75k/chkpnt_fine_100000.pth`
+
+Metrics:
+
+```json
+{
+  "num_frames": 2892,
+  "threshold": 8,
+  "render_area_mean": 17801.59163208852,
+  "render_area_max": 149265,
+  "gt_area_mean": 13620.92254495159,
+  "gt_area_max": 28540,
+  "ratio_mean": 1.2897762311488485,
+  "ratio_median": 1.2722187185471754,
+  "ratio_p90": 1.5500204877381265,
+  "render_max_mean": 191.41528354080222,
+  "render_max_max": 255,
+  "zero_render_frames": 0,
+  "nonzero_gt_frames": 2892
+}
+```
+
+Verdict: completed and viewable. Quantitatively it is very close to `75k_from50k`: it keeps `zero_render_frames = 0`, but its mean/median area ratio does not materially improve over 75k and `ratio_p90` is a little worse. Human visual QA should decide whether 100k reduces blinking enough to justify keeping it as the new visual baseline. Keep `75k_from50k` and `100k_from75k` side by side for now.
+
+## 2026-06-04: Collision Object-A Wu Canary Runs
+
+Goal: test whether the collision failure was caused by the extra Wu mask-loss term or by the broader collision fitting setup. Both runs used the same collision source scene and preserved the required segmentation discipline:
+
+- Source scene: `dataset/outputs/phys4d_final/collision_elastic_transparent_rails_centered_slow_2p6s_60fps/scene_0000_collision_room`
+- Object mask: `masks_object_a`
+- Spatial segmentation: object-only masked RGB on black background.
+- Temporal filtering: `--drop-invisible-frames --min-visible-cameras 6 --min-mask-pixels 50`
+- Export check: 157 synchronized timestamps, 1884 train views, all 12 cameras, no empty or below-threshold masks.
+- Init: `--init-points 12000 --init-center-mode first --init-surface-ratio 0.85`
+- Fit controls: `--bounds 0.45 --foreground-loss-weight 20 --bg-spill-loss-weight 1.0 --area-loss-weight 0.10 --scale-isotropy-loss-weight 0.05 --max-scale-loss-weight 1.0 --max-gaussian-scale 0.04 --compactness-loss-weight 0.001 --wu-densify-until-iter 2500 --wu-opacity-reset-interval 300000`
+
+### `wu_collision_recovery_a_firstinit_bounds0p45_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale1_cap0p04_compact1e-3_iter8000`
+
+Difference tested: includes `--mask-loss-weight 1.0`.
+
+Result:
+
+- Trained and rendered after one NaN/restart.
+- Local model folder: `dataset/outputs/phys4d_final/collision_elastic_transparent_rails_centered_slow_2p6s_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_recovery_a_firstinit_bounds0p45_fg20_mask1_spill1_area0p1_scaleiso5e-2_maxscale1_cap0p04_compact1e-3_iter8000`
+- Render frames: 1884.
+- Zero-render frames by threshold `>8`: `1738 / 1884`.
+- Nonzero frames: `146 / 1884`.
+- Foreground area mean/median/p90/max: `40470.83 / 0.0 / 0.0 / 522240`.
+
+Verdict: failed. It is not the old all-black failure, but most frames are black and some nonzero frames are full-frame spill. The mask-loss term did not rescue collision.
+
+### `wu_collision_recovery_a_nomaskloss_firstinit_bounds0p45_fg20_spill1_area0p1_scaleiso5e-2_maxscale1_cap0p04_compact1e-3_iter8000`
+
+Difference tested: same recipe, but remove the extra `--mask-loss-weight` term while keeping masked RGB supervision and temporal filtering.
+
+Result:
+
+- Trained and rendered after one NaN/restart.
+- Local model folder: `dataset/outputs/phys4d_final/collision_elastic_transparent_rails_centered_slow_2p6s_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_recovery_a_nomaskloss_firstinit_bounds0p45_fg20_spill1_area0p1_scaleiso5e-2_maxscale1_cap0p04_compact1e-3_iter8000`
+- Render frames: 1884.
+- Zero-render frames by threshold `>8`: `1869 / 1884`.
+- Nonzero frames: `15 / 1884`.
+- Foreground area mean/median/p90/max: `4157.96 / 0.0 / 0.0 / 522240`.
+
+Verdict: failed, worse than the mask-loss canary. Removing the mask-loss term alone makes the render even more blank. The collision issue is therefore not explained by mask loss alone; the next useful direction is likely data/scale/visibility or a gentler collision-specific fitting recipe rather than simply dropping mask loss.
+
+## 2026-06-04: Scaled Collision Direct Per-Object Wu 4DGS Canary
+
+Goal: try Wu 4DGS directly on the newer scaled collision scene, fitting each object separately with spatial masks and temporal filtering. This is not yet the final collision recipe; it is a canary to test whether the larger objects, adjusted side cameras, and capped densification avoid the earlier black / full-frame spill failures.
+
+Source scene:
+
+- `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room`
+- 12 cameras, 60 FPS, 2.6 s, 157 synchronized timestamps.
+- Collision setup: object/wall footprint scaled by `1.75`, velocity scaled by `1.4`, side cameras moved outward/up.
+- Per-object masks used: `masks_object_a` and `masks_object_b`.
+- Temporal filtering: `--drop-invisible-frames --min-visible-cameras 6 --min-mask-pixels 50`.
+- Export result for each object: 1884 train views, all 12 cameras, no dropped empty/below-threshold masks.
+
+Shared Wu recipe:
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room \
+  <run_name> \
+  --mask-subdir <masks_object_a_or_b> \
+  --mode object \
+  --background black \
+  --iterations 15000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 1.2 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1.0 \
+  --bg-spill-loss-weight 1.0 \
+  --area-loss-weight 0.10 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 1000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --init-points 20000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.85 \
+  --render
+```
+
+### Object A: `wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k`
+
+Result:
+
+- Completed 1000 coarse + 15000 fine iterations.
+- Final point count: `50794`.
+- Local model folder: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k`
+- PLY: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/point_cloud/iteration_15000/point_cloud.ply`
+- Deformation: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/point_cloud/iteration_15000/deformation.pth`
+- Checkpoint: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/chkpnt_fine_15000.pth`
+- Render frames: `train/ours_15000/renders/*.png`
+- QA sheet: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/train/ours_15000/collision_object_a_qa_sheet.jpg`
+
+Verdict: usable canary, not final. Object A is visible and tracks motion across sampled timestamps/cameras, but render has blur/halo near the box edges.
+
+### Object B: `wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k`
+
+Result:
+
+- Completed 1000 coarse + 15000 fine iterations.
+- Final point count: `42740`.
+- Local model folder: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k`
+- PLY: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/point_cloud/iteration_15000/point_cloud.ply`
+- Deformation: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/point_cloud/iteration_15000/deformation.pth`
+- Checkpoint: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/chkpnt_fine_15000.pth`
+- Render frames: `train/ours_15000/renders/*.png`
+- QA sheet: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/train/ours_15000/collision_object_b_qa_sheet.jpg`
+
+Verdict: usable canary, not final. Object B is visible and tracks the blue box, but is blurrier/foggier than object A in the sampled render-vs-GT sheet.
+
+Overall verdict: this is the first scaled collision Wu attempt where both per-object models are visible instead of black. It supports the direction of larger object scale + all-12-view spatial/temporal segmentation + capped densification. Still not presentation quality; next collision work should improve sharpness and then compose the two per-object 4DGS models in a common scene/time frame.
+
+## 2026-06-04: Scaled Collision Per-Object Wu 30k Continuation
+
+Goal: continue the usable scaled collision per-object canaries from 15k to 30k fine iterations, keeping the exact same data, masks, temporal filtering, and fitting recipe. This tests whether additional fitting time improves sharpness/stability without changing the scene or accidentally introducing a new variable.
+
+Source scene:
+
+- `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room`
+- 12 cameras, 60 FPS, 2.6 s, 157 synchronized timestamps.
+- Per-object masks:
+  - Object A: `masks_object_a`
+  - Object B: `masks_object_b`
+- Temporal filtering: `--drop-invisible-frames --min-visible-cameras 6 --min-mask-pixels 50`.
+- Export result for both objects: 1884 train views, all 12 cameras, no dropped frames/masks.
+- Same coordinate/time frame for A and B; `transforms_train.json` is identical except expected mask-pixel metadata.
+
+Shared continuation recipe:
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room \
+  <run_name> \
+  --mask-subdir <masks_object_a_or_b> \
+  --mode object \
+  --background black \
+  --iterations 30000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 1.2 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1.0 \
+  --bg-spill-loss-weight 1.0 \
+  --area-loss-weight 0.10 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 1000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --init-points 20000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.85 \
+  --wu-start-checkpoint <matching_15k_remote_checkpoint> \
+  --render
+```
+
+### Object A: `wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k`
+
+Started from:
+
+- Remote checkpoint: `wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/chkpnt_fine_15000.pth`
+
+Result:
+
+- Continued fine stage from 15k to 30k; coarse stage was skipped on resume.
+- Final point count: `50794`.
+- Local model folder: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k`
+- Remote model: `phys4d-gs-output:/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k`
+- PLY: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/point_cloud/iteration_30000/point_cloud.ply`
+- Deformation: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/point_cloud/iteration_30000/deformation.pth`
+- Checkpoint: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/chkpnt_fine_30000.pth`
+- Render frames: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/train/ours_30000/renders`
+- Viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_object_a_30k/index.html`
+
+### Object B: `wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k`
+
+Started from:
+
+- Remote checkpoint: `wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter15k/chkpnt_fine_15000.pth`
+
+Result:
+
+- Continued fine stage from 15k to 30k; coarse stage was skipped on resume.
+- Final point count: `42740`.
+- Local model folder: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k`
+- Remote model: `phys4d-gs-output:/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k`
+- PLY: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/point_cloud/iteration_30000/point_cloud.ply`
+- Deformation: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/point_cloud/iteration_30000/deformation.pth`
+- Checkpoint: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/chkpnt_fine_30000.pth`
+- Render frames: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/train/ours_30000/renders`
+- Viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_object_b_30k/index.html`
+
+Viewer notes:
+
+- Both 30k viewers were built with all 12 cameras and 157 timesteps.
+- Ground-truth comparison is enabled in the viewer.
+
+Verdict: pending visual QA by viewer, but the train/resume/export path is now clean for both objects. These are the correct 30k continuation artifacts to inspect before deciding whether to continue to 50k or compose A+B in one render.
+
+## 2026-06-04: Scaled Collision Per-Object Wu 50k Continuation
+
+Goal: continue the scaled collision per-object Wu 4DGS runs from 30k to 50k fine iterations, using the same data and hyperparameters as the 30k run. This is the next quality checkpoint for the larger collision setup before attempting A+B composition in one shared 4DGS space.
+
+Source scene:
+
+- `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room`
+- 12 cameras, 60 FPS, 2.6 s, 157 synchronized timestamps.
+- Per-object masks:
+  - Object A: `masks_object_a`
+  - Object B: `masks_object_b`
+- Spatial/temporal filtering: `--drop-invisible-frames --min-visible-cameras 6 --min-mask-pixels 50`.
+- Export result for both objects: 1884 train views, all 12 cameras, no dropped frames/masks.
+- Same coordinate/time frame for A and B; this is important for later composition.
+
+Shared continuation recipe:
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room \
+  <run_name> \
+  --mask-subdir <masks_object_a_or_b> \
+  --mode object \
+  --background black \
+  --iterations 50000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 1.2 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1.0 \
+  --bg-spill-loss-weight 1.0 \
+  --area-loss-weight 0.10 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 1000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --init-points 20000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.85 \
+  --wu-start-checkpoint <matching_30k_remote_checkpoint> \
+  --render
+```
+
+### Object A: `wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k`
+
+Started from:
+
+- Remote checkpoint: `wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/chkpnt_fine_30000.pth`
+
+Result:
+
+- Continued fine stage from 30k to 50k; coarse stage was skipped on resume.
+- Final point count: `50794`.
+- Local model folder: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k`
+- Remote model: `phys4d-gs-output:/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k`
+- PLY: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/point_cloud/iteration_50000/point_cloud.ply`
+- Deformation: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/point_cloud/iteration_50000/deformation.pth`
+- Checkpoint: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/chkpnt_fine_50000.pth`
+- Render frames: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/train/ours_50000/renders`
+- Viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_object_a_50k/index.html`
+
+### Object B: `wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k`
+
+Started from:
+
+- Remote checkpoint: `wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter30k_from15k/chkpnt_fine_30000.pth`
+
+Result:
+
+- Continued fine stage from 30k to 50k; coarse stage was skipped on resume.
+- Final point count: `42740`.
+- Local model folder: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k`
+- Remote model: `phys4d-gs-output:/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k`
+- PLY: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/point_cloud/iteration_50000/point_cloud.ply`
+- Deformation: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/point_cloud/iteration_50000/deformation.pth`
+- Checkpoint: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/chkpnt_fine_50000.pth`
+- Render frames: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/train/ours_50000/renders`
+- Viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_object_b_50k/index.html`
+
+Viewer notes:
+
+- Both 50k viewers were built with all 12 cameras and 157 timesteps.
+- Ground-truth comparison is enabled in both viewers.
+
+Verdict: ready for visual QA. This is the current strongest per-object collision pair because it keeps the successful scaled collision data recipe and adds another 20k fine optimization steps on top of the 30k continuation. Next step is to inspect A/B 30k vs 50k visually, then decide whether to keep 50k as the collision baseline or attempt composition directly in shared Gaussian space.
+
+## 2026-06-04: Collision A+B Gaussian-Space Composition Render
+
+Goal: combine the two separately fit collision object models in Gaussian splat space, rather than compositing videos. For Wu 4DGS, a single native model folder has one deformation network, so directly concatenating two independently trained checkpoints would discard one deformation field. The correct practical composition is to load both object models, deform each model at the same camera timestamp, concatenate the deformed Gaussian tensors, and rasterize once.
+
+Implementation:
+
+- Added `render_wu_4dgs_composed` in `modal_app.py`.
+- It loads multiple Wu model folders from `phys4d-gs-output`, keeps each model's own deformation network, and concatenates:
+  - deformed means,
+  - scales,
+  - rotations,
+  - opacities,
+  - SH/color features,
+  before a single Gaussian rasterization pass.
+- This is not a 2D pixel overlay. It is a shared rasterization of both Gaussian sets in the same camera/time coordinate frame.
+
+Command used:
+
+```bash
+arch -arm64 modal run modal_app.py \
+  --render-wu-4d-compose \
+  --render-wu-4d-compose-models wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k,wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k \
+  --render-wu-4d-compose-output-model wu_collision_scale1p75_v1p4_ab_composed_50k \
+  --render-wu-4d-iteration 50000 \
+  --wu-time-resolution 120 \
+  --wu-bounds 1.2
+```
+
+Result:
+
+- Remote composed render: `phys4d-gs-output:/wu_collision_scale1p75_v1p4_ab_composed_50k/train/ours_50000`
+- Local render frames: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/composed_ab_50k_render/train/ours_50000/renders`
+- Local viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_ab_composed_50k/index.html`
+- Viewer server used during QA: `http://127.0.0.1:8877/`
+- Viewer contains all 12 cameras and 157 synchronized timestamps.
+
+Storage note:
+
+- Disk was full during viewer generation. Cleared the obsolete 15k/30k scaled collision Wu artifacts and their old viewers, preserving the 50k A/B models and the composed A+B render.
+
+Verdict: implementation path works. This is the first collision output where A and B are rendered together through a single Gaussian rasterizer pass while preserving each object's learned deformation field.
+
+## 2026-06-04: Collision A+B Composition With Render-Time Opacity Pruning
+
+Why:
+
+- The unpruned A+B Gaussian-space composition renders both independently fit objects through one rasterizer pass, but low-opacity splat dust from each object can accumulate when the objects overlap.
+- Individually, those weak Gaussians are barely visible. Together, they can create haze, strange overlap artifacts, or extra mass between/around the two boxes.
+- This run tests the conservative cleanup option before attempting any joint fine-tuning.
+
+Implementation:
+
+- Added a render-time opacity threshold to `render_wu_4dgs_composed` in `modal_app.py`.
+- The checkpoint is not changed and no retraining happens.
+- For each object at each timestamp:
+  - deform the object with its own Wu deformation field,
+  - activate opacity,
+  - drop Gaussians with activated opacity below the threshold,
+  - concatenate the remaining Gaussian tensors from A and B,
+  - rasterize once.
+
+Command:
+
+```bash
+arch -arm64 modal run modal_app.py \
+  --render-wu-4d-compose \
+  --render-wu-4d-compose-models wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k,wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k \
+  --render-wu-4d-compose-output-model wu_collision_scale1p75_v1p4_ab_composed_50k_opacity0p05 \
+  --render-wu-4d-iteration 50000 \
+  --wu-time-resolution 120 \
+  --wu-bounds 1.2 \
+  --render-wu-4d-compose-opacity-threshold 0.05
+```
+
+Result:
+
+- Remote render: `phys4d-gs-output:/wu_collision_scale1p75_v1p4_ab_composed_50k_opacity0p05/train/ours_50000`
+- Local render frames: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/composed_ab_50k_opacity0p05_render/train/ours_50000/renders`
+- Local viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_ab_composed_50k_opacity0p05/index.html`
+- Viewer server used during QA: `http://127.0.0.1:8878/`
+- Viewer contains all 12 cameras and 157 synchronized timestamps.
+- Render/GT PNG count verified locally: `1884` renders and `1884` GT images.
+
+Download note:
+
+- `modal volume get` without a trailing slash on the remote `renders` path saved only one PNG-like file locally.
+- The reliable folder command was:
+
+```bash
+arch -arm64 modal volume get phys4d-gs-output \
+  wu_collision_scale1p75_v1p4_ab_composed_50k_opacity0p05/train/ours_50000/renders/ \
+  tmp_renders_op05_dir \
+  --force
+```
+
+Verdict:
+
+- Ready for visual comparison against the unpruned composition.
+- If `0.05` causes holes or removes too much mass, try `0.02`.
+- If `0.05` barely changes the haze/overlap artifact, try `0.10`.
+
+## 2026-06-04: Collision Trajectory Anchor Loss Ablation
+
+Why:
+
+- A and B are trained as separate object-only Wu 4DGS models, then composed later in Gaussian space.
+- Even though both exports use the same source cameras, source frames, and scene coordinate system, separate masked/black-background optimization can still learn slightly different effective support/depth/opacity distributions.
+- This ablation tested a light trajectory-centroid anchor from PyBullet `object_poses.csv`, without changing the source collision data.
+
+Implementation:
+
+- `4dgs/experiments/object_only/export_object_only_dynerf.py` now writes `trajectory_anchors.json` for object-mode exports when `object_poses.csv` is available.
+- The anchor file stores the object name, original frame id, seconds, Wu-normalized time, and PyBullet world-space object center.
+- `modal_app.py` can optionally patch Wu training with `--wu-trajectory-anchor-loss-weight`.
+- The loss is only active when the weight is positive. Existing runs with the default `0` are unchanged.
+- The loss computes the opacity-weighted centroid of the deformed Gaussian means at the current camera time and penalizes its squared distance from the nearest PyBullet anchor center.
+
+Base run:
+
+- Scene: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room`
+- Object tested: `object_b`
+- Start checkpoint: `wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/chkpnt_fine_50000.pth`
+- Spatial segmentation: `masks_object_b`
+- Temporal segmentation: `--drop-invisible-frames --min-visible-cameras 6 --min-mask-pixels 50`
+- Cameras/timestamps after export: all 12 cameras, 157 timestamps.
+
+Run 1: strong anchor
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room \
+  wu_collision_scale1p75_v1p4_object_b_anchor0p5_from50k_to60k \
+  --mask-subdir masks_object_b \
+  --mode object \
+  --background black \
+  --iterations 60000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 1.2 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1 \
+  --bg-spill-loss-weight 1 \
+  --area-loss-weight 0.1 \
+  --scale-isotropy-loss-weight 0.05 \
+  --trajectory-anchor-loss-weight 0.5 \
+  --wu-densify-until-iter 1000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --init-points 20000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.8 \
+  --wu-start-checkpoint wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/chkpnt_fine_50000.pth \
+  --render
+```
+
+Result:
+
+- Local model: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_anchor0p5_from50k_to60k`
+- Local viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_object_b_anchor0p5_60k/index.html`
+- Metrics against GT object-B masks:
+  - old 50k mean centroid error: `20.21 px`, median `14.72 px`, mean area ratio `2.42`
+  - anchor `0.5` mean centroid error: `29.40 px`, median `21.78 px`, mean area ratio `2.93`
+
+Verdict: failed. The strong anchor made the object more smeared and less aligned.
+
+Run 2: weak anchor
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room \
+  wu_collision_scale1p75_v1p4_object_b_anchor0p05_from50k_to55k \
+  --mask-subdir masks_object_b \
+  --mode object \
+  --background black \
+  --iterations 55000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 1.2 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1 \
+  --bg-spill-loss-weight 1 \
+  --area-loss-weight 0.1 \
+  --scale-isotropy-loss-weight 0.05 \
+  --trajectory-anchor-loss-weight 0.05 \
+  --wu-densify-until-iter 1000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --init-points 20000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.8 \
+  --wu-start-checkpoint wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/chkpnt_fine_50000.pth \
+  --render
+```
+
+Result:
+
+- Local model: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_anchor0p05_from50k_to55k`
+- PLY: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_anchor0p05_from50k_to55k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_anchor0p05_from50k_to55k/point_cloud/iteration_55000/point_cloud.ply`
+- Deformation: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_anchor0p05_from50k_to55k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_anchor0p05_from50k_to55k/point_cloud/iteration_55000/deformation.pth`
+- Checkpoint: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_anchor0p05_from50k_to55k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_anchor0p05_from50k_to55k/chkpnt_fine_55000.pth`
+- Local viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_object_b_anchor0p05_55k/index.html`
+- Contact sheet: `/tmp/collision_object_b_anchor0p05_compare.jpg`
+- Metrics against GT object-B masks:
+  - old 50k mean centroid error: `20.21 px`, median `14.72 px`, mean area ratio `2.42`
+  - anchor `0.05` mean centroid error: `30.92 px`, median `22.01 px`, mean area ratio `3.02`
+
+Verdict: failed. The weak anchor still worsened centroid alignment and foreground area. Centroid anchoring alone is not enough for collision-object composition because it does not constrain shape/support/opacity; it can pull the mean while allowing a diffuse splat cloud.
+
+Next recommendation:
+
+- Keep the anchor code as an optional ablation, but do not use it for the current best collision models.
+- For Gaussian-space composition, focus next on support cleanup or object-local normalization rather than centroid-only supervision.
+
+## 2026-06-04: Collision Object-B Compactness Warm Starts
+
+Goal:
+
+- Improve collision object-B support before composing object A and object B in Gaussian space.
+- Start from the existing object-B 50k checkpoint instead of retraining from scratch.
+- Keep the same spatial and temporal segmentation rules used for the collision fits:
+  - `masks_object_b`
+  - `--drop-invisible-frames`
+  - `--min-visible-cameras 6`
+  - `--min-mask-pixels 50`
+- Do not use trajectory anchor loss for these runs.
+
+Common setup:
+
+- Scene: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room`
+- Start checkpoint: `wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/chkpnt_fine_50000.pth`
+- Export status: all 12 cameras, 157 timestamps, no dropped views.
+- Object-B physical size from metadata: approximately `0.42 x 0.42 x 0.2625 m`.
+
+Baseline object-B 50k metrics:
+
+- Local viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_object_b_50k/index.html`
+- Mean centroid error: `20.21 px`
+- Median centroid error: `14.72 px`
+- Mean foreground area ratio: `2.42`
+- Median foreground area ratio: `2.32`
+
+Run A: stronger spill/area cleanup, same scale-isotropy weight
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room \
+  wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k \
+  --mask-subdir masks_object_b \
+  --mode object \
+  --background black \
+  --iterations 60000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 1.2 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1 \
+  --bg-spill-loss-weight 2 \
+  --area-loss-weight 0.2 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 1000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --init-points 20000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.8 \
+  --wu-start-checkpoint wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/chkpnt_fine_50000.pth \
+  --render
+```
+
+Result:
+
+- Local model: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k`
+- PLY: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k/point_cloud/iteration_60000/point_cloud.ply`
+- Deformation: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k/point_cloud/iteration_60000/deformation.pth`
+- Checkpoint: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k/chkpnt_fine_60000.pth`
+- Viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_object_b_compactA_60k/index.html`
+- Mean centroid error: `17.00 px`
+- Median centroid error: `11.34 px`
+- Mean foreground area ratio: `2.09`
+- Median foreground area ratio: `2.04`
+
+Verdict: current best object-B compactness recipe. It reduces centroid error and excess foreground support relative to the old 50k run.
+
+Run B: stronger scale-isotropy weight
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room \
+  wu_collision_scale1p75_v1p4_object_b_compactB_bg2_area0p2_iso0p1_from50k_to60k \
+  --mask-subdir masks_object_b \
+  --mode object \
+  --background black \
+  --iterations 60000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 1.2 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1 \
+  --bg-spill-loss-weight 2 \
+  --area-loss-weight 0.2 \
+  --scale-isotropy-loss-weight 0.1 \
+  --wu-densify-until-iter 1000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --init-points 20000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.8 \
+  --wu-start-checkpoint wu4dgs_wu_collision_scale1p75_v1p4_object_b_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/chkpnt_fine_50000.pth \
+  --render
+```
+
+Result:
+
+- Local model: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactB_bg2_area0p2_iso0p1_from50k_to60k`
+- PLY: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactB_bg2_area0p2_iso0p1_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactB_bg2_area0p2_iso0p1_from50k_to60k/point_cloud/iteration_60000/point_cloud.ply`
+- Deformation: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactB_bg2_area0p2_iso0p1_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactB_bg2_area0p2_iso0p1_from50k_to60k/point_cloud/iteration_60000/deformation.pth`
+- Checkpoint: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactB_bg2_area0p2_iso0p1_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactB_bg2_area0p2_iso0p1_from50k_to60k/chkpnt_fine_60000.pth`
+- Viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_object_b_compactB_60k/index.html`
+- Mean centroid error: `19.58 px`
+- Median centroid error: `13.16 px`
+- Mean foreground area ratio: `2.14`
+- Median foreground area ratio: `2.07`
+
+Verdict: usable but not better than run A. The stronger isotropy regularization cleaned foreground area relative to the old 50k baseline, but alignment was worse than compact-A.
+
+Comparison artifact:
+
+- Contact sheet: `/tmp/collision_object_b_compactAB_compare.jpg`
+
+Recommendation:
+
+- Use compact-A for object B unless later visual inspection finds a severe artifact not captured by the metrics.
+- Next, apply the same compact-A recipe to object A from its 50k checkpoint, then attempt A+B Gaussian-space composition again.
+
+Follow-up: compact-A applied to object A
+
+```bash
+bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room \
+  wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k \
+  --mask-subdir masks_object_a \
+  --mode object \
+  --background black \
+  --iterations 60000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 1.2 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1 \
+  --bg-spill-loss-weight 2 \
+  --area-loss-weight 0.2 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 1000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --init-points 20000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.8 \
+  --wu-start-checkpoint wu4dgs_wu_collision_scale1p75_v1p4_object_a_fg20_mask1_spill1_area0p1_scaleiso5e-2_den1000_iter50k_from30k/chkpnt_fine_50000.pth \
+  --render
+```
+
+Result:
+
+- Local model: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k`
+- PLY: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k/point_cloud/iteration_60000/point_cloud.ply`
+- Deformation: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k/point_cloud/iteration_60000/deformation.pth`
+- Checkpoint: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k/chkpnt_fine_60000.pth`
+- Viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_object_a_compactA_60k/index.html`
+- Old A 50k metrics:
+  - mean centroid error: `9.34 px`
+  - median centroid error: `9.26 px`
+  - mean foreground area ratio: `1.73`
+  - median foreground area ratio: `1.56`
+- Compact-A 60k metrics:
+  - mean centroid error: `8.61 px`
+  - median centroid error: `7.15 px`
+  - mean foreground area ratio: `1.58`
+  - median foreground area ratio: `1.46`
+
+Verdict: modest improvement. Compact-A is also better for object A, so it is a consistent recipe for both collision objects.
+
+Gaussian-space A+B composition with compact-A
+
+```bash
+arch -arm64 modal run modal_app.py \
+  --render-wu-4d-compose \
+  --render-wu-4d-compose-models wu4dgs_wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k,wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k \
+  --render-wu-4d-compose-output-model wu4dgs_collision_scale1p75_v1p4_ab_compactA_60k_composed \
+  --render-wu-4d-iteration 60000 \
+  --wu-time-resolution 120 \
+  --wu-bounds 1.2 \
+  --render-wu-4d-compose-opacity-threshold 0.0
+```
+
+Result:
+
+- Remote render: `phys4d-gs-output:/wu4dgs_collision_scale1p75_v1p4_ab_compactA_60k_composed/train/ours_60000`
+- Local render: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu4dgs_collision_scale1p75_v1p4_ab_compactA_60k_composed`
+- Viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_ab_compactA_60k_composed/index.html`
+- Contact sheet: `/tmp/collision_ab_compactA_60k_composed_sheet.jpg`
+
+Verdict: improved but still not final. The render is a true Gaussian-space composition: deformed Gaussian tensors are concatenated before rasterization. It is less chaotic than the earlier composed 50k/opacity-threshold attempts, but some cameras still show dark/hazy residual support. If continuing, the next useful test is a slightly more aggressive compact-A variant on both objects, not trajectory anchoring.

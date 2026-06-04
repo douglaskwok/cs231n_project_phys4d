@@ -140,7 +140,7 @@ def _infer_object_name_from_masks_root(masks_root: Path) -> str | None:
         if suffix.startswith("block_"):
             return suffix
         if suffix.startswith("object_"):
-            return suffix[len("object_") :]
+            return suffix
     return None
 
 
@@ -384,6 +384,75 @@ def _write_object_pose_fused_ply(
     }
 
 
+def _write_trajectory_anchors(
+    *,
+    cfg: dict[str, Any],
+    scene_dir: Path,
+    output: Path,
+    masks_root: Path,
+    frame_indices: list[int],
+    fps: float,
+    max_time_s: float,
+) -> dict[str, Any] | None:
+    pose_rel = cfg.get("outputs", {}).get("object_poses")
+    if not pose_rel:
+        return None
+    local_pose_path = scene_dir / "object_poses.csv"
+    pose_path = local_pose_path.resolve() if local_pose_path.is_file() else (REPO_ROOT / pose_rel).resolve()
+    if not pose_path.is_file():
+        return None
+    object_name = _infer_object_name_from_masks_root(masks_root)
+    if object_name is None:
+        return None
+
+    centers, _, source_rows = _read_pose_records(
+        pose_path,
+        frame_indices,
+        object_name=object_name,
+    )
+    if len(centers) != len(frame_indices):
+        raise ValueError(
+            f"Expected one pose row per exported frame for {object_name}; "
+            f"got {len(centers)} rows for {len(frame_indices)} frames"
+        )
+
+    times_s = np.asarray(frame_indices, dtype=np.float32) / float(fps)
+    denom = float(max(max_time_s, 1e-8))
+    normalized_times = times_s / denom
+    anchor_path = output / "trajectory_anchors.json"
+    payload = {
+        "object_name": object_name,
+        "source": str(pose_path),
+        "time_unit": "wu_normalized_time",
+        "fps": float(fps),
+        "max_time_s": float(max_time_s),
+        "frames": [
+            {
+                "original_frame": int(frame_idx),
+                "time_s": float(time_s),
+                "wu_time": float(wu_time),
+                "center_world_m": [float(v) for v in center],
+            }
+            for frame_idx, time_s, wu_time, center in zip(
+                frame_indices,
+                times_s.tolist(),
+                normalized_times.tolist(),
+                centers.tolist(),
+                strict=True,
+            )
+        ],
+    }
+    with anchor_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    return {
+        "path": str(anchor_path),
+        "object_name": object_name,
+        "num_frames": int(len(frame_indices)),
+        "source_rows": int(source_rows),
+        "max_time_s": float(max_time_s),
+    }
+
+
 def export_object_only_dynerf(
     *,
     config: Path,
@@ -567,7 +636,22 @@ def export_object_only_dynerf(
     train, train_empty = frame_entries(train_cameras, train_frame_indices)
     test, test_empty = frame_entries(test_cameras, test_frame_indices)
     init_point_cloud = None
+    trajectory_anchors = None
     if mode == "object":
+        all_exported_times = [
+            float(frame_idx) / float(fps)
+            for frame_idx in [*train_frame_indices, *test_frame_indices]
+        ]
+        max_time_s = max(all_exported_times) if all_exported_times else 0.0
+        trajectory_anchors = _write_trajectory_anchors(
+            cfg=cfg,
+            scene_dir=scene_dir,
+            output=output,
+            masks_root=masks_root,
+            frame_indices=train_frame_indices,
+            fps=fps,
+            max_time_s=max_time_s,
+        )
         init_point_cloud = _write_object_pose_fused_ply(
             cfg=cfg,
             scene_dir=scene_dir,
@@ -621,6 +705,7 @@ def export_object_only_dynerf(
         "frame_list": str(frame_list) if frame_list is not None else None,
         "all_train": all_train,
         "init_point_cloud": init_point_cloud,
+        "trajectory_anchors": trajectory_anchors,
         "preserves_original_timestamps": True,
         "preserves_synchronized_multiview_frames": not drop_invisible_views,
         "image_size": [width, height],

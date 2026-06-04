@@ -1,0 +1,19 @@
+{
+  "run_name": "col_m440_v060_r025_object_a_quick",
+  "scene_dir": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0004_col_m440_v060_r025",
+  "export_dir": "4dgs/experiments/object_only/runs/col_m440_v060_r025_object_a_quick",
+  "mask_subdir": "masks_object_a",
+  "mode": "object",
+  "config": "room_physics_4dgs_quick_2p6s.yaml",
+  "checkpoint": "chkpnt1000.pth",
+  "model_rel": "4dgs_col_m440_v060_r025_object_a_quick",
+  "download_dir": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0004_col_m440_v060_r025/4dgs/col_m440_v060_r025_object_a_quick",
+  "quality": "quick",
+  "timings": {
+    "export_seconds": 17.0,
+    "upload_seconds": 69.0,
+    "train_seconds": 638.0,
+    "download_seconds": 10.0,
+    "total_seconds": 734.0
+  }
+}
