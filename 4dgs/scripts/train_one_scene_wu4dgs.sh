@@ -19,6 +19,7 @@ BACKGROUND="black"
 EXPORT_DIR=""
 DOWNLOAD_DIR=""
 MODEL_REL=""
+WU_SCENE_REL=""
 ITERATIONS="15000"
 COARSE_ITERATIONS="3000"
 TIME_RESOLUTION="75"
@@ -137,6 +138,9 @@ Options:
   --init-surface-ratio X   Fraction of init points on sphere surface. Default: 0.
   --skip-export            Reuse the existing DyNeRF export.
   --skip-upload            Reuse existing phys4d-gs-data:/4d_scene.
+  --wu-scene-rel PATH      Modal input path under phys4d-gs-data. Default:
+                          4d_scene_<RUN_NAME>, so parallel jobs do not
+                          overwrite each other's DyNeRF scene.
   --no-archive-upload      Upload the DyNeRF directory directly instead of a
                           single tar.gz archive. Archive upload is the default
                           because Modal is more reliable with one large file
@@ -259,6 +263,10 @@ while [[ $# -gt 0 ]]; do
       WU_START_CHECKPOINT="$2"
       shift 2
       ;;
+    --wu-scene-rel)
+      WU_SCENE_REL="$2"
+      shift 2
+      ;;
     --render)
       RENDER="1"
       shift
@@ -349,6 +357,9 @@ fi
 if [[ -z "$MODEL_REL" ]]; then
   MODEL_REL="wu4dgs_${RUN_NAME}"
 fi
+if [[ -z "$WU_SCENE_REL" ]]; then
+  WU_SCENE_REL="4d_scene_${RUN_NAME}"
+fi
 
 MASK_ROOT="${SCENE_DIR}/${MASK_SUBDIR}"
 if [[ "$MODE" != "full" && ! -d "$MASK_ROOT" ]]; then
@@ -361,6 +372,7 @@ echo "Run:          $RUN_NAME"
 echo "Mask:         $MASK_SUBDIR"
 echo "Mode:         $MODE"
 echo "Export dir:   $EXPORT_DIR"
+echo "Wu scene rel: $WU_SCENE_REL"
 echo "Model rel:    $MODEL_REL"
 echo "Download:     $DOWNLOAD_DIR"
 echo "Iterations:   coarse=$COARSE_ITERATIONS fine=$ITERATIONS"
@@ -397,6 +409,7 @@ if [[ "$SKIP_UPLOAD" != "1" ]]; then
   "$PYTHON_BIN" 4dgs/scripts/upload_4d_scene_to_modal.py \
     "$EXPORT_DIR" \
     --modal-cmd "$MODAL_CMD" \
+    --remote-path "$WU_SCENE_REL" \
     $(if [[ "$ARCHIVE_UPLOAD" == "1" ]]; then printf '%s' "--archive"; fi)
 fi
 
@@ -406,6 +419,7 @@ if [[ "$SKIP_TRAIN" != "1" ]]; then
   $MODAL_CMD run modal_app.py \
     --train-wu-4d \
     --train-wu-4d-model "$MODEL_REL" \
+    --wu-scene-rel "$WU_SCENE_REL" \
     --wu-iterations "$ITERATIONS" \
     --wu-coarse-iterations "$COARSE_ITERATIONS" \
     --wu-time-resolution "$TIME_RESOLUTION" \
@@ -433,6 +447,7 @@ if [[ "$RENDER" == "1" ]]; then
   $MODAL_CMD run modal_app.py \
     --render-wu-4d \
     --render-wu-4d-model "$MODEL_REL" \
+    --wu-scene-rel "$WU_SCENE_REL" \
     --render-wu-4d-iteration "$ITERATIONS" \
     --wu-time-resolution "$TIME_RESOLUTION" \
     --wu-bounds "$BOUNDS" \

@@ -765,6 +765,7 @@ def _patch_wu4dgs_foreground_loss(
 )
 def train_wu_4dgs(
     model_rel: str = "wu4dgs_sphere_bounce",
+    scene_rel: str = "4d_scene",
     iterations: int = 15000,
     coarse_iterations: int = 3000,
     time_resolution: int = 75,
@@ -785,15 +786,16 @@ def train_wu_4dgs(
     start_checkpoint: str = "",
     force_aabb: str = "",
 ) -> str:
-    """Train hustvl/4DGaussians on /data/4d_scene."""
+    """Train hustvl/4DGaussians on a DyNeRF scene under /data."""
     import shutil
     import tarfile
 
-    scene = Path("/data/4d_scene")
-    scene_archive = Path("/data/4d_scene.tar.gz")
+    scene_rel = scene_rel.strip("/") or "4d_scene"
+    scene = Path("/data") / scene_rel
+    scene_archive = Path("/data") / f"{scene_rel}.tar.gz"
     if not (scene / "transforms_train.json").is_file():
         if scene_archive.is_file():
-            extracted = Path("/tmp/4d_scene")
+            extracted = Path("/tmp") / scene_rel.replace("/", "_")
             if extracted.exists():
                 shutil.rmtree(extracted)
             extracted.mkdir(parents=True, exist_ok=True)
@@ -803,7 +805,7 @@ def train_wu_4dgs(
             print(f"Extracted archived DyNeRF scene from {scene_archive} to {scene}", flush=True)
         else:
             raise FileNotFoundError(
-                "No 4D scene at /data/4d_scene or /data/4d_scene.tar.gz. "
+                f"No 4D scene at {scene} or {scene_archive}. "
                 "Upload a DyNeRF export first."
             )
 
@@ -916,6 +918,7 @@ def train_wu_4dgs(
 )
 def render_wu_4dgs(
     model_rel: str = "wu4dgs_sphere_bounce",
+    scene_rel: str = "4d_scene",
     iteration: int = 15000,
     time_resolution: int = 75,
     bounds: float = 1.6,
@@ -927,11 +930,12 @@ def render_wu_4dgs(
     import shutil
     import tarfile
 
-    scene = Path("/data/4d_scene")
-    scene_archive = Path("/data/4d_scene.tar.gz")
+    scene_rel = scene_rel.strip("/") or "4d_scene"
+    scene = Path("/data") / scene_rel
+    scene_archive = Path("/data") / f"{scene_rel}.tar.gz"
     if not (scene / "transforms_train.json").is_file():
         if scene_archive.is_file():
-            extracted = Path("/tmp/4d_scene")
+            extracted = Path("/tmp") / scene_rel.replace("/", "_")
             if extracted.exists():
                 shutil.rmtree(extracted)
             extracted.mkdir(parents=True, exist_ok=True)
@@ -941,7 +945,7 @@ def render_wu_4dgs(
             print(f"Extracted archived DyNeRF scene from {scene_archive} to {scene}", flush=True)
         else:
             raise FileNotFoundError(
-                "No 4D scene at /data/4d_scene or /data/4d_scene.tar.gz. "
+                f"No 4D scene at {scene} or {scene_archive}. "
                 "Upload the same DyNeRF export used for training."
             )
 
@@ -2001,6 +2005,7 @@ def main(
     train_4d_config: str = "sphere_bounce_4dgs.yaml",
     train_4d_model: str = "4dgs_sphere_bounce",
     train_wu_4d_model: str = "wu4dgs_sphere_bounce",
+    wu_scene_rel: str = "4d_scene",
     wu_iterations: int = 15000,
     wu_coarse_iterations: int = 3000,
     wu_time_resolution: int = 75,
@@ -2152,6 +2157,7 @@ def main(
         print(
             train_wu_4dgs.remote(
                 model_rel=train_wu_4d_model,
+                scene_rel=wu_scene_rel,
                 iterations=wu_iterations,
                 coarse_iterations=wu_coarse_iterations,
                 time_resolution=wu_time_resolution,
@@ -2228,6 +2234,7 @@ def main(
         print(
             render_wu_4dgs.remote(
                 model_rel=render_wu_4d_model,
+                scene_rel=wu_scene_rel,
                 iteration=render_wu_4d_iteration,
                 time_resolution=wu_time_resolution,
                 bounds=wu_bounds,
