@@ -36,6 +36,7 @@ SILHOUETTE_ROUNDNESS_LOSS_WEIGHT="0"
 TRAJECTORY_ANCHOR_LOSS_WEIGHT="0"
 WU_DENSIFY_UNTIL_ITER="0"
 WU_OPACITY_RESET_INTERVAL="0"
+WU_FORCE_AABB=""
 ALL_TRAIN="1"
 DROP_INVISIBLE_FRAMES="0"
 TRIM_EMPTY_TIME_ENDS="0"
@@ -118,6 +119,9 @@ Options:
                           Override Wu densify_until_iter. Default: repo config.
   --wu-opacity-reset-interval N
                           Override Wu opacity_reset_interval. Default: repo config.
+  --wu-force-aabb CSV      Force shared Wu deformation AABB as
+                          xmin,ymin,zmin,xmax,ymax,zmax. Useful when training
+                          objects separately for later Gaussian-space composition.
   --wu-start-checkpoint PATH
                           Resume Wu training from a checkpoint on the Modal output
                           volume. Relative paths are resolved under /outputs.
@@ -247,6 +251,10 @@ while [[ $# -gt 0 ]]; do
       WU_OPACITY_RESET_INTERVAL="$2"
       shift 2
       ;;
+    --wu-force-aabb)
+      WU_FORCE_AABB="$2"
+      shift 2
+      ;;
     --wu-start-checkpoint)
       WU_START_CHECKPOINT="$2"
       shift 2
@@ -358,6 +366,7 @@ echo "Download:     $DOWNLOAD_DIR"
 echo "Iterations:   coarse=$COARSE_ITERATIONS fine=$ITERATIONS"
 echo "Loss:         foreground_weight=$FOREGROUND_LOSS_WEIGHT mask_weight=$MASK_LOSS_WEIGHT bg_spill_weight=$BG_SPILL_LOSS_WEIGHT area_weight=$AREA_LOSS_WEIGHT compactness_weight=$COMPACTNESS_LOSS_WEIGHT scale_isotropy_weight=$SCALE_ISOTROPY_LOSS_WEIGHT max_scale_weight=$MAX_SCALE_LOSS_WEIGHT max_gaussian_scale=$MAX_GAUSSIAN_SCALE cloud_isotropy_weight=$CLOUD_ISOTROPY_LOSS_WEIGHT silhouette_roundness_weight=$SILHOUETTE_ROUNDNESS_LOSS_WEIGHT trajectory_anchor_weight=$TRAJECTORY_ANCHOR_LOSS_WEIGHT"
 echo "Wu opts:      densify_until=$WU_DENSIFY_UNTIL_ITER opacity_reset_interval=$WU_OPACITY_RESET_INTERVAL"
+echo "Wu AABB:      ${WU_FORCE_AABB:-auto from fused.ply}"
 echo "Resume:       wu_start_checkpoint=${WU_START_CHECKPOINT:-none}"
 echo "Temporal:     all_train=$ALL_TRAIN drop_frames=$DROP_INVISIBLE_FRAMES trim_ends=$TRIM_EMPTY_TIME_ENDS min_visible_cameras=$MIN_VISIBLE_CAMERAS min_mask_pixels=$MIN_MASK_PIXELS frame_list=${FRAME_LIST:-none}"
 echo "Init points:  $INIT_POINTS center=$INIT_CENTER_MODE surface_ratio=$INIT_SURFACE_RATIO"
@@ -414,6 +423,7 @@ if [[ "$SKIP_TRAIN" != "1" ]]; then
     --wu-trajectory-anchor-loss-weight "$TRAJECTORY_ANCHOR_LOSS_WEIGHT" \
     --wu-densify-until-iter "$WU_DENSIFY_UNTIL_ITER" \
     --wu-opacity-reset-interval "$WU_OPACITY_RESET_INTERVAL" \
+    $(if [[ -n "$WU_FORCE_AABB" ]]; then printf '%s %s' "--wu-force-aabb" "$WU_FORCE_AABB"; fi) \
     $(if [[ -n "$WU_START_CHECKPOINT" ]]; then printf '%s %q' "--wu-start-checkpoint" "$WU_START_CHECKPOINT"; fi)
 fi
 
@@ -425,7 +435,8 @@ if [[ "$RENDER" == "1" ]]; then
     --render-wu-4d-model "$MODEL_REL" \
     --render-wu-4d-iteration "$ITERATIONS" \
     --wu-time-resolution "$TIME_RESOLUTION" \
-    --wu-bounds "$BOUNDS"
+    --wu-bounds "$BOUNDS" \
+    $(if [[ -n "$WU_FORCE_AABB" ]]; then printf '%s %s' "--wu-force-aabb" "$WU_FORCE_AABB"; fi)
 fi
 
 echo

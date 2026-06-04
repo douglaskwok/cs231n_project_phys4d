@@ -180,6 +180,17 @@ _test_image = _torch_image.add_local_dir(
     ignore=_ignore_repo_mount,
 )
 
+_pybullet_dataset_image = (
+    modal.Image.from_registry("python:3.10-slim")
+    .apt_install("libgl1", "libglib2.0-0", "ffmpeg")
+    .pip_install("numpy<2", "imageio[ffmpeg]", "pybullet")
+    .add_local_dir(
+        str(REPO_ROOT),
+        remote_path="/repo",
+        ignore=_ignore_repo_mount,
+    )
+)
+
 # Visual dynamics: perception cache, transformer train, rollout + 3DGS warp.
 _ml_image = (
     modal.Image.from_registry("pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime")
@@ -431,6 +442,46 @@ def _patch_wu4dgs_aspect_preserving_loader() -> None:
     if old in text:
         reader_py.write_text(text.replace(old, new), encoding="utf-8")
         print("Patched Wu Blender loader to preserve native image aspect/resolution", flush=True)
+
+
+def _patch_wu4dgs_forced_aabb(force_aabb: str = "") -> None:
+    """Optionally force Wu's deformation AABB across independently trained objects.
+
+    Format is xmin,ymin,zmin,xmax,ymax,zmax. Wu internally calls set_aabb(max, min),
+    so the patch only swaps those two vectors before the original call.
+    """
+    if not force_aabb:
+        return
+    values = [float(v) for v in force_aabb.split(",")]
+    if len(values) != 6:
+        raise ValueError(
+            "--wu-force-aabb must be xmin,ymin,zmin,xmax,ymax,zmax "
+            f"(got {force_aabb!r})"
+        )
+    xmin, ymin, zmin, xmax, ymax, zmax = values
+    scene_py = Path("/opt/wu4dgs/scene/__init__.py")
+    text = scene_py.read_text(encoding="utf-8")
+    old = "        self.gaussians._deformation.deformation_net.set_aabb(xyz_max,xyz_min)\n"
+    new = (
+        "        force_aabb = os.environ.get('PHYS4D_WU_FORCE_AABB', '').strip()\n"
+        "        if force_aabb:\n"
+        "            import numpy as _phys4d_np\n"
+        "            vals = [float(v) for v in force_aabb.split(',')]\n"
+        "            if len(vals) != 6:\n"
+        "                raise ValueError('PHYS4D_WU_FORCE_AABB must be xmin,ymin,zmin,xmax,ymax,zmax')\n"
+        "            xyz_min = _phys4d_np.array([vals[0], vals[1], vals[2]], dtype=scene_info.point_cloud.points.dtype)\n"
+        "            xyz_max = _phys4d_np.array([vals[3], vals[4], vals[5]], dtype=scene_info.point_cloud.points.dtype)\n"
+        "            print('Phys4D forced Wu deformation AABB', xyz_max, xyz_min, flush=True)\n"
+        "        self.gaussians._deformation.deformation_net.set_aabb(xyz_max,xyz_min)\n"
+    )
+    if new in text:
+        print(f"Wu deformation AABB already patched: {force_aabb}", flush=True)
+    elif old in text:
+        scene_py.write_text(text.replace(old, new), encoding="utf-8")
+        print(f"Patched Wu deformation AABB override: {force_aabb}", flush=True)
+    else:
+        raise RuntimeError("Could not find Wu set_aabb line to patch")
+    os.environ["PHYS4D_WU_FORCE_AABB"] = f"{xmin},{ymin},{zmin},{xmax},{ymax},{zmax}"
 
 
 def _patch_wu4dgs_foreground_loss(
@@ -732,6 +783,7 @@ def train_wu_4dgs(
     densify_until_iter: int = 0,
     opacity_reset_interval: int = 0,
     start_checkpoint: str = "",
+    force_aabb: str = "",
 ) -> str:
     """Train hustvl/4DGaussians on /data/4d_scene."""
     import shutil
@@ -783,6 +835,8 @@ def train_wu_4dgs(
 
     env = {**os.environ, "PYTHONUNBUFFERED": "1"}
     _patch_wu4dgs_aspect_preserving_loader()
+    _patch_wu4dgs_forced_aabb(force_aabb)
+    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
     _patch_wu4dgs_foreground_loss(
         foreground_loss_weight,
         mask_loss_weight,
@@ -865,6 +919,7 @@ def render_wu_4dgs(
     iteration: int = 15000,
     time_resolution: int = 75,
     bounds: float = 1.6,
+    force_aabb: str = "",
     skip_test: bool = True,
     skip_video: bool = True,
 ) -> str:
@@ -910,6 +965,7 @@ def render_wu_4dgs(
     )
 
     _patch_wu4dgs_aspect_preserving_loader()
+    _patch_wu4dgs_forced_aabb(force_aabb)
     render_py = Path("/opt/wu4dgs/render.py")
     render_text = render_py.read_text(encoding="utf-8")
     render_text = render_text.replace(
@@ -970,6 +1026,7 @@ def render_wu_4dgs_composed(
     iteration: int = 50000,
     time_resolution: int = 120,
     bounds: float = 1.2,
+    force_aabb: str = "",
     opacity_threshold: float = 0.0,
     skip_test: bool = True,
     skip_video: bool = True,
@@ -1033,6 +1090,7 @@ def render_wu_4dgs_composed(
     )
 
     _patch_wu4dgs_aspect_preserving_loader()
+    _patch_wu4dgs_forced_aabb(force_aabb)
 
     script = Path("/tmp/render_wu_composed.py")
     script.write_text(
@@ -1057,7 +1115,6 @@ from tqdm import tqdm
 from arguments import ModelHiddenParams, ModelParams, PipelineParams, get_combined_args
 from scene import GaussianModel, Scene
 from utils.general_utils import safe_state
-from utils.render_utils import get_state_at_time
 
 
 to8b = lambda x: (255 * np.clip(x.detach().cpu().numpy(), 0, 1)).astype(np.uint8)
@@ -1078,7 +1135,20 @@ def render_multi(viewpoint_camera, gaussians, pipe, bg_color, cam_type, opacity_
             screen.retain_grad()
         except Exception:
             pass
-        m, s, r, o, h = get_state_at_time(pc, viewpoint_camera)
+        # Match Wu's reference single-object renderer: deform opacity and SHs
+        # at the camera timestamp before applying activations. The helper
+        # utils.render_utils.get_state_at_time returns the base opacity, which
+        # makes composed per-object models dark/occluding even when each object
+        # renders correctly on its own.
+        time = torch.tensor(viewpoint_camera.time).to(pc.get_xyz.device).repeat(pc.get_xyz.shape[0], 1)
+        m, s, r, o, h = pc._deformation(
+            pc.get_xyz,
+            pc._scaling,
+            pc._rotation,
+            pc._opacity,
+            pc.get_features,
+            time,
+        )
         s = pc.scaling_activation(s)
         r = pc.rotation_activation(r)
         o = pc.opacity_activation(o)
@@ -1821,6 +1891,73 @@ def cleanup_output_volume(paths_csv: str) -> str:
     return json.dumps({"removed": removed, "missing": missing}, indent=2)
 
 
+@app.function(
+    image=_pybullet_dataset_image,
+    volumes={"/outputs": output_volume},
+    cpu=8.0,
+    timeout=60 * 60 * 2,
+)
+def generate_collision_variants_dataset(
+    *,
+    output_rel: str,
+    video_fps: float = 60.0,
+    duration_sec: float = 2.6,
+    masses: str = "0.22,0.44",
+    velocity_modes: str = "asym1.4,equal1.05",
+    restitutions: str = "0.98,0.90",
+    workers: int = 8,
+) -> str:
+    """Generate the final 2x2x2 collision PyBullet dataset on Modal."""
+    rel = output_rel.strip().strip("/")
+    if not rel:
+        raise ValueError("output_rel must be non-empty")
+    out_dir = (Path("/outputs") / rel).resolve()
+    if Path("/outputs").resolve() not in out_dir.parents:
+        raise ValueError(f"Refusing to write outside /outputs: {output_rel}")
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+
+    cmd = [
+        sys.executable,
+        "/repo/dataset/generate_collision_variants_final.py",
+        "--output-dir",
+        str(out_dir),
+        "--video-fps",
+        str(video_fps),
+        "--duration-sec",
+        str(duration_sec),
+        "--masses",
+        masses,
+        "--velocity-modes",
+        velocity_modes,
+        "--restitutions",
+        restitutions,
+        "--workers",
+        str(workers),
+    ]
+    subprocess.run(cmd, check=True, cwd="/repo")
+
+    report_path = out_dir / "collision_contact_validation.json"
+    subprocess.run(
+        [
+            sys.executable,
+            "/repo/scripts/validate_collision_contacts.py",
+            str(out_dir),
+            "--write-json",
+            str(report_path),
+        ],
+        check=True,
+        cwd="/repo",
+    )
+    output_volume.commit()
+    manifest = out_dir / "scenario_manifest.json"
+    return (
+        f"generated collision dataset -> phys4d-gs-output:/{rel}\n"
+        f"manifest: {manifest}\n"
+        f"validation: {report_path}"
+    )
+
+
 @app.local_entrypoint()
 def main(
     tests: bool = False,
@@ -1841,6 +1978,7 @@ def main(
     extract_perception: bool = False,
     train_visual_dynamics: bool = False,
     visual_states_only: bool = False,
+    generate_collision_variants: bool = False,
     cleanup_output: bool = False,
     cleanup_output_paths: str = "",
     upload_visual_pipeline: bool = False,
@@ -1850,6 +1988,15 @@ def main(
     scene_rel: str = "scene",
     pipeline_out_rel: str = "visual_dynamics_pipeline",
     perception_limit: int = 0,
+    collision_output_rel: str = "generated_datasets/collision_scale1p75_elastic_2x2x2_60fps",
+    collision_local_output: str = "dataset/outputs/phys4d_final/collision_scale1p75_elastic_2x2x2_60fps",
+    collision_video_fps: float = 60.0,
+    collision_duration_sec: float = 2.6,
+    collision_masses: str = "0.22,0.44",
+    collision_velocity_modes: str = "asym1.4,equal1.05",
+    collision_restitutions: str = "0.98,0.90",
+    collision_workers: int = 8,
+    modal_cmd: str = "arch -arm64 modal",
     render_4d_checkpoint: str | None = None,
     train_4d_config: str = "sphere_bounce_4dgs.yaml",
     train_4d_model: str = "4dgs_sphere_bounce",
@@ -1872,6 +2019,7 @@ def main(
     wu_densify_until_iter: int = 0,
     wu_opacity_reset_interval: int = 0,
     wu_start_checkpoint: str = "",
+    wu_force_aabb: str = "",
     render_4d_config: str = "sphere_bounce_4dgs.yaml",
     render_4d_model: str = "4dgs_sphere_bounce",
     render_wu_4d_model: str = "wu4dgs_sphere_bounce",
@@ -1897,6 +2045,35 @@ def main(
     frame: int = 0,
     iterations: int = 7000,
 ) -> None:
+    if generate_collision_variants:
+        print(
+            generate_collision_variants_dataset.remote(
+                output_rel=collision_output_rel,
+                video_fps=collision_video_fps,
+                duration_sec=collision_duration_sec,
+                masses=collision_masses,
+                velocity_modes=collision_velocity_modes,
+                restitutions=collision_restitutions,
+                workers=collision_workers,
+            )
+        )
+        local_out = (REPO_ROOT / collision_local_output).resolve()
+        local_out.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                *modal_cmd.split(),
+                "volume",
+                "get",
+                "phys4d-gs-output",
+                collision_output_rel.strip("/"),
+                str(local_out),
+                "--force",
+            ],
+            check=True,
+            cwd=str(REPO_ROOT),
+        )
+        print(f"Downloaded collision dataset -> {local_out}")
+        return
     if cleanup_output:
         print(cleanup_output_volume.remote(paths_csv=cleanup_output_paths))
         return
@@ -1993,6 +2170,7 @@ def main(
                 densify_until_iter=wu_densify_until_iter,
                 opacity_reset_interval=wu_opacity_reset_interval,
                 start_checkpoint=wu_start_checkpoint,
+                force_aabb=wu_force_aabb,
             )
         )
         print(
@@ -2053,6 +2231,7 @@ def main(
                 iteration=render_wu_4d_iteration,
                 time_resolution=wu_time_resolution,
                 bounds=wu_bounds,
+                force_aabb=wu_force_aabb,
             )
         )
         print(
@@ -2068,6 +2247,7 @@ def main(
                 iteration=render_wu_4d_iteration,
                 time_resolution=wu_time_resolution,
                 bounds=wu_bounds,
+                force_aabb=wu_force_aabb,
                 opacity_threshold=render_wu_4d_compose_opacity_threshold,
             )
         )

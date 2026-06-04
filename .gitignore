@@ -150,6 +150,7 @@ activemq-data/
 # Environments
 .env
 .envrc
+breakglass.txt
 .venv
 env/
 venv/

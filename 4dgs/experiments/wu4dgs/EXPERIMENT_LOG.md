@@ -4039,3 +4039,302 @@ Result:
 - Contact sheet: `/tmp/collision_ab_compactA_60k_composed_sheet.jpg`
 
 Verdict: improved but still not final. The render is a true Gaussian-space composition: deformed Gaussian tensors are concatenated before rasterization. It is less chaotic than the earlier composed 50k/opacity-threshold attempts, but some cameras still show dark/hazy residual support. If continuing, the next useful test is a slightly more aggressive compact-A variant on both objects, not trajectory anchoring.
+
+Follow-up: collision A+B composition debugging, same coordinate system
+
+Goal: make the separately fitted collision objects usable together while preserving object identity for prediction. The two compact-A 60k object fits are currently the best individual Wu fits:
+
+- Object A: `wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k`
+- Object B: `wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k`
+- Both use the same DyNeRF camera/time export and the same collision scene coordinate system.
+
+Tests performed:
+
+1. Uploaded the local compact-A A/B model folders back to Modal:
+
+```bash
+arch -arm64 modal volume put phys4d-gs-output \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k \
+  wu4dgs_wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k
+
+arch -arm64 modal volume put phys4d-gs-output \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k \
+  wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k
+```
+
+2. Retried naive single-raster composition with opacity pruning:
+
+```bash
+arch -arm64 modal run modal_app.py \
+  --render-wu-4d-compose \
+  --render-wu-4d-compose-models wu4dgs_wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k,wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k \
+  --render-wu-4d-compose-output-model wu4dgs_collision_scale1p75_v1p4_ab_compactA_60k_opacity0p02 \
+  --render-wu-4d-iteration 60000 \
+  --wu-time-resolution 120 \
+  --wu-bounds 1.2 \
+  --render-wu-4d-compose-opacity-threshold 0.02
+```
+
+Result: no useful improvement over the previous naive single-raster composition. The sampled foreground coverage stayed effectively unchanged.
+
+3. Patched `modal_app.py` composed Wu render path so it deforms opacity at the camera timestamp before activation, matching Wu's reference single-object renderer. This is safer/cleaner, but for these compact-A 60k checkpoints it did not materially change the A+B render.
+
+4. Re-uploaded the exact collision DyNeRF scene as an archive to avoid stale Modal `/data/4d_scene` state:
+
+```bash
+phys_sim/bin/python 4dgs/scripts/upload_4d_scene_to_modal.py \
+  4dgs/experiments/wu4dgs/runs/wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k \
+  --modal-cmd "arch -arm64 modal" \
+  --archive
+```
+
+Then rendered:
+
+```bash
+arch -arm64 modal run modal_app.py \
+  --render-wu-4d-compose \
+  --render-wu-4d-compose-models wu4dgs_wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k,wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k \
+  --render-wu-4d-compose-output-model wu4dgs_collision_scale1p75_v1p4_ab_compactA_60k_correctscene_archive \
+  --render-wu-4d-iteration 60000 \
+  --wu-time-resolution 120 \
+  --wu-bounds 1.2
+```
+
+Result: still not good enough. The direct concatenated-Gaussian single raster pass remains too dark / under-visible. Diagnosis: dark or broad support Gaussians from one separately trained object can suppress the other during joint alpha compositing. This is a composition/rendering failure mode, not simply a wrong coordinate-system issue.
+
+Current best A+B representation for viewing / tracking:
+
+- Keep A and B as separate Wu object fields in the same scene coordinate/time system.
+- Render both object fields on the same camera/time sequence.
+- Composite the object layers after rendering with thresholded max compositing.
+- This preserves separate object identities and gives a shared-scene, layered 4D Gaussian representation suitable for downstream object-wise prediction.
+
+Best layered render:
+
+- Render folder: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu4dgs_collision_scale1p75_v1p4_ab_compactA_60k_layered_thr48/train/ours_60000/renders`
+- Viewer: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/viewer_ab_compactA_60k_layered_thr48/index.html`
+- Metadata: `dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room/4dgs_wu/wu4dgs_collision_scale1p75_v1p4_ab_compactA_60k_layered_thr48/train/ours_60000/composite_meta.json`
+- QA sheet: `/tmp/collision_AB_layered_thr48_qa.jpg`
+
+Sampled QA against original RGB plus A/B masks:
+
+- Naive single-raster compact-A 60k: mean foreground area ratio `0.37`, foreground mean intensity `17.2`.
+- Layered max without threshold: mean foreground area ratio `1.62`, foreground mean intensity `58.5`.
+- Layered threshold 48: mean foreground area ratio `1.26`, foreground mean intensity `71.7`, zero blank samples.
+
+Verdict: `viewer_ab_compactA_60k_layered_thr48` is the current best collision A+B visualization. It is not a single fused Gaussian tensor; it is a layered object-wise Wu representation in a shared scene coordinate system. This is preferable for the prediction goal because object identities remain explicit. If we need a literal one-pass rasterizer later, we likely need object-aware alpha/color regularization during training or a renderer that supports per-object layers/depth-aware compositing rather than naive Gaussian concatenation.
+
+## Collision 2x2x2 Tuned PyBullet Dataset
+
+Goal: generate the remaining collision scenes in the same improved setup as the successful `collision_scale1p75_v1p4_sidecams_60fps` scene, but as a full 2x2x2 parameter grid. The first raw attempt kept the older grid values:
+
+- mass A: `0.10, 0.44`
+- velocity scale: `0.60, 1.40`
+- restitution: `0.25, 0.75`
+
+That first attempt was written to:
+
+```text
+dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_2x2x2_60fps
+```
+
+Validation showed that only `scene_0006` had two A/B contact episodes. The low-mass / low-speed settings usually collided once and then failed to meet again within `2.6s`, so that folder was deleted as a failed first pass.
+
+The tuned passing grid keeps the same 2x2x2 structure but uses values that actually produce two A/B collisions:
+
+- mass A: `0.34, 0.44`
+- velocity scale: `1.60, 1.80`
+- restitution: `0.25, 0.45`
+- fixed geometry/cameras: object/wall scale `1.75`, side cameras `+0.3m` radius and `+0.1m` height, 12 cameras, 60 FPS, 2.6 seconds, per-object masks.
+
+Generated with:
+
+```bash
+phys_sim/bin/python dataset/generate_collision_variants_final.py \
+  --output-dir dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_2x2x2_tuned_60fps \
+  --masses 0.34,0.44 \
+  --velocities 1.6,1.8 \
+  --restitutions 0.25,0.45
+```
+
+Output:
+
+```text
+dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_2x2x2_tuned_60fps
+```
+
+Validation command:
+
+```bash
+phys_sim/bin/python scripts/validate_collision_contacts.py \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_2x2x2_tuned_60fps \
+  --write-json dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_2x2x2_tuned_60fps/collision_contact_validation.json
+```
+
+Validation result:
+
+```text
+OK scene_0000_col_m340_v160_r025: 2 episodes [0.32-0.37s, 1.77-2.60s]
+OK scene_0001_col_m340_v160_r045: 3 episodes [0.32-0.33s, 1.88-2.00s, 2.58-2.60s]
+OK scene_0002_col_m340_v180_r025: 2 episodes [0.28-0.32s, 1.62-2.60s]
+OK scene_0003_col_m340_v180_r045: 3 episodes [0.28-0.30s, 1.67-1.75s, 2.50-2.60s]
+OK scene_0004_col_m440_v160_r025: 2 episodes [0.32-0.37s, 1.43-2.60s]
+OK scene_0005_col_m440_v160_r045: 3 episodes [0.32-0.33s, 1.45-1.52s, 1.80-2.60s]
+OK scene_0006_col_m440_v180_r025: 2 episodes [0.28-0.32s, 1.30-2.60s]
+OK scene_0007_col_m440_v180_r045: 3 episodes [0.28-0.30s, 1.32-1.40s, 1.58-2.60s]
+```
+
+Next Wu training order requested:
+
+```text
+1, 2, 4, 3, 5, 6, 7
+```
+
+Helper script added:
+
+```bash
+MODAL_PROFILE=simon bash 4dgs/scripts/train_collision_tuned_wu_sequence.sh
+```
+
+This trains object A then object B for each scene using the compact-A collision recipe:
+
+- `--mask-subdir masks_object_a` / `masks_object_b`
+- all 12 cameras as train views
+- `--drop-invisible-frames --min-visible-cameras 6 --min-mask-pixels 50`
+- `--iterations 60000 --coarse-iterations 1000`
+- `--time-resolution 120 --bounds 1.2`
+- `--foreground-loss-weight 20`
+- `--mask-loss-weight 1`
+- `--bg-spill-loss-weight 2`
+- `--area-loss-weight 0.2`
+- `--scale-isotropy-loss-weight 0.05`
+- `--wu-densify-until-iter 1000`
+- `--wu-opacity-reset-interval 300000`
+- `--init-points 20000 --init-center-mode first --init-surface-ratio 0.8`
+- `--render`
+
+Attempted first run:
+
+```bash
+MODAL_PROFILE=simon bash 4dgs/scripts/train_one_scene_wu4dgs.sh \
+  dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_2x2x2_tuned_60fps/scene_0001_col_m340_v160_r045 \
+  wu_collision_tuned_s0001_object_a_compactA_iter60k \
+  --mask-subdir masks_object_a \
+  --mode object \
+  --background black \
+  --iterations 60000 \
+  --coarse-iterations 1000 \
+  --time-resolution 120 \
+  --bounds 1.2 \
+  --foreground-loss-weight 20 \
+  --mask-loss-weight 1 \
+  --bg-spill-loss-weight 2 \
+  --area-loss-weight 0.2 \
+  --scale-isotropy-loss-weight 0.05 \
+  --wu-densify-until-iter 1000 \
+  --wu-opacity-reset-interval 300000 \
+  --drop-invisible-frames \
+  --min-visible-cameras 6 \
+  --min-mask-pixels 50 \
+  --init-points 20000 \
+  --init-center-mode first \
+  --init-surface-ratio 0.8 \
+  --render
+```
+
+The local DyNeRF export succeeded and preserved all frames/views:
+
+- export dir: `4dgs/experiments/wu4dgs/runs/wu_collision_tuned_s0001_object_a_compactA_iter60k`
+- train views: `1884` (`157` timestamps x `12` cameras)
+- dropped masks/views: `0`
+- trajectory anchors written
+
+Modal upload/training did not start because Modal connectivity failed repeatedly:
+
+```text
+Could not connect to the Modal server.
+```
+
+The profile syntax was corrected from the invalid `modal --profile simon` form to `MODAL_PROFILE=simon`. A separate `MODAL_PROFILE=simon arch -arm64 modal token info` check failed with the same connectivity error, so this was a Modal/network connection issue, not a bad token/profile issue. Do not use `breakglass.txt` for this failure mode.
+
+## Collision Elastic 2x2x2 Dataset Anchored On Original Scene
+
+Generated a revised collision 2x2x2 PyBullet grid that explicitly includes the original successful collision setting as scene 0000. This replaces the earlier damped/tuned grid for the final elastic rigid-body prediction dataset.
+
+Local root:
+
+```text
+dataset/outputs/phys4d_final/collision_scale1p75_elastic_2x2x2_60fps
+```
+
+Remote Modal output:
+
+```text
+phys4d-gs-output:/generated_datasets/collision_scale1p75_elastic_2x2x2_60fps
+```
+
+Generation command:
+
+```bash
+MODAL_PROFILE=simon arch -arm64 modal run modal_app.py \
+  --generate-collision-variants \
+  --collision-output-rel generated_datasets/collision_scale1p75_elastic_2x2x2_60fps \
+  --collision-local-output dataset/outputs/phys4d_final/collision_scale1p75_elastic_2x2x2_60fps \
+  --collision-video-fps 60 \
+  --collision-duration-sec 2.6 \
+  --collision-masses 0.22,0.44 \
+  --collision-velocity-modes asym1.4,equal1.05 \
+  --collision-restitutions 0.98,0.90 \
+  --collision-workers 8 \
+  --modal-cmd "arch -arm64 modal"
+```
+
+Grid axes:
+
+- `mass_a_kg`: `0.22`, `0.44`
+- velocity distribution:
+  - `asym140`: original asymmetric launch, `vA=0.98 m/s`, `vB=0.77 m/s`
+  - `equal105`: equal-speed launch, `vA=vB=1.05 m/s`
+- restitution: `0.98`, `0.90`
+
+Scene list:
+
+```text
+scene_0000_col_m220_asym140_r098  # original successful physics setting
+scene_0001_col_m220_asym140_r090
+scene_0002_col_m220_equal105_r098
+scene_0003_col_m220_equal105_r090
+scene_0004_col_m440_asym140_r098
+scene_0005_col_m440_asym140_r090
+scene_0006_col_m440_equal105_r098
+scene_0007_col_m440_equal105_r090
+```
+
+Validation:
+
+```bash
+phys_sim/bin/python scripts/validate_collision_contacts.py \
+  dataset/outputs/phys4d_final/collision_scale1p75_elastic_2x2x2_60fps \
+  --write-json dataset/outputs/phys4d_final/collision_scale1p75_elastic_2x2x2_60fps/collision_contact_validation_local.json
+```
+
+All 8 scenes pass with two A/B contact episodes. Because these are near-elastic rigid impacts sampled at 60fps, some contact episodes are one sampled frame long; the validator now allows one-frame contact episodes by default.
+
+Local validation output:
+
+```text
+OK scene_0000_col_m220_asym140_r098: 2 episodes [0.37-0.37s, 1.95-1.95s]
+OK scene_0001_col_m220_asym140_r090: 2 episodes [0.37-0.37s, 2.48-2.48s]
+OK scene_0002_col_m220_equal105_r098: 2 episodes [0.30-0.30s, 1.65-1.65s]
+OK scene_0003_col_m220_equal105_r090: 2 episodes [0.30-0.30s, 2.07-2.07s]
+OK scene_0004_col_m440_asym140_r098: 2 episodes [0.37-0.37s, 1.07-1.07s]
+OK scene_0005_col_m440_asym140_r090: 2 episodes [0.37-0.37s, 1.18-1.18s]
+OK scene_0006_col_m440_equal105_r098: 2 episodes [0.30-0.30s, 1.00-1.00s]
+OK scene_0007_col_m440_equal105_r090: 2 episodes [0.30-0.30s, 1.13-1.13s]
+```
+
+Files modified for this dataset:
+
+- `dataset/generate_collision_variants_final.py`: added velocity-distribution modes, scene-level parallel generation, and elastic-grid defaults.
+- `modal_app.py`: added `--generate-collision-variants` Modal entrypoint and parallel worker support.
+- `scripts/validate_collision_contacts.py`: changed default `--min-contact-frames` to `1` for sharp 60fps rigid contacts.

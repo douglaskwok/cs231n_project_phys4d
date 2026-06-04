@@ -359,6 +359,7 @@ def _setup_collision_scene(
     *,
     mass_a_kg: float = 0.220,
     velocity_scale: float = 1.0,
+    velocity_split: float | None = None,
     restitution: float = 0.80,
     geometry_scale: float = 1.0,
     wall_height_scale: float = 1.0,
@@ -381,8 +382,13 @@ def _setup_collision_scene(
     )
     half = [v * geometry_scale for v in COLLISION_OBJECT_HALF_EXTENTS_M]
     start_x = 0.30 * geometry_scale
-    vel_a = 0.70 * velocity_scale
-    vel_b = 0.55 * velocity_scale
+    if velocity_split is None:
+        vel_a = 0.70 * velocity_scale
+        vel_b = 0.55 * velocity_scale
+    else:
+        closing_speed = (0.70 + 0.55) * velocity_scale
+        vel_a = closing_speed * velocity_split
+        vel_b = closing_speed * (1.0 - velocity_split)
     objects = [
         _add_collision_object(
             p,
@@ -418,6 +424,8 @@ def _setup_collision_scene(
         "geometry_scale": geometry_scale,
         "wall_height_scale": wall_height_scale,
         "velocity_scale": velocity_scale,
+        "velocity_split": velocity_split,
+        "object_closing_speed_m_s": vel_a + vel_b,
         "object_a_initial_velocity_m_s": vel_a,
         "object_b_initial_velocity_m_s": vel_b,
         "table_top_z_m": table_top_z,
@@ -697,6 +705,7 @@ def _scenario_setup(
     *,
     collision_mass_a_kg: float = 0.220,
     collision_velocity_scale: float = 1.0,
+    collision_velocity_split: float | None = None,
     collision_restitution: float = 0.80,
     collision_geometry_scale: float = 1.0,
     collision_wall_height_scale: float = 1.0,
@@ -707,6 +716,7 @@ def _scenario_setup(
             client,
             mass_a_kg=collision_mass_a_kg,
             velocity_scale=collision_velocity_scale,
+            velocity_split=collision_velocity_split,
             restitution=collision_restitution,
             geometry_scale=collision_geometry_scale,
             wall_height_scale=collision_wall_height_scale,
@@ -732,6 +742,7 @@ def simulate_scenario(
     write_videos: bool,
     collision_mass_a_kg: float = 0.220,
     collision_velocity_scale: float = 1.0,
+    collision_velocity_split: float | None = None,
     collision_restitution: float = 0.80,
     collision_geometry_scale: float = 1.0,
     collision_wall_height_scale: float = 1.0,
@@ -754,6 +765,7 @@ def simulate_scenario(
         scenario,
         collision_mass_a_kg=collision_mass_a_kg,
         collision_velocity_scale=collision_velocity_scale,
+        collision_velocity_split=collision_velocity_split,
         collision_restitution=collision_restitution,
         collision_geometry_scale=collision_geometry_scale,
         collision_wall_height_scale=collision_wall_height_scale,
