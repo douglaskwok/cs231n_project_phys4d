@@ -86,6 +86,51 @@ def crop_gaussian_vertices_radius(
     return vertices[d <= float(radius)].copy()
 
 
+def crop_gaussian_vertices_box(
+    vertices: np.ndarray,
+    center: np.ndarray,
+    half_extents: np.ndarray,
+) -> np.ndarray:
+    """Keep Gaussians inside an axis-aligned box centered at ``center``."""
+
+    center = np.asarray(center, dtype=np.float64).reshape(3)
+    half = np.asarray(half_extents, dtype=np.float64).reshape(3)
+    rel = np.abs(gaussian_xyz(vertices) - center[None, :])
+    keep = np.all(rel <= half[None, :], axis=1)
+    return vertices[keep].copy()
+
+
+def filter_gaussian_vertices_min_opacity(vertices: np.ndarray, min_opacity: float) -> np.ndarray:
+    """Drop Gaussians whose activated opacity is below ``min_opacity``.
+
+    Object-only 4DGS often stores thousands of near-zero halo splats around a small
+    opaque core. Boosting or compositing those halos makes boxes look blobby.
+    """
+
+    min_opacity = float(min_opacity)
+    if min_opacity <= 0:
+        return vertices
+    alpha = _sigmoid(np.asarray(vertices["opacity"], dtype=np.float64))
+    return vertices[alpha >= min_opacity].copy()
+
+
+def filter_gaussian_vertices_max_scale(vertices: np.ndarray, max_scale: float) -> np.ndarray:
+    """Drop Gaussians whose largest activated axis scale exceeds ``max_scale``.
+
+    Object-only 4DGS runs sometimes leave a few huge "spill" splats far from the
+    object; removing them before compositing keeps the foreground layer tight.
+    """
+
+    max_scale = float(max_scale)
+    if max_scale <= 0:
+        return vertices
+    s0 = np.exp(vertices["scale_0"].astype(np.float64))
+    s1 = np.exp(vertices["scale_1"].astype(np.float64))
+    s2 = np.exp(vertices["scale_2"].astype(np.float64))
+    keep = np.maximum(np.maximum(s0, s1), s2) <= max_scale
+    return vertices[keep].copy()
+
+
 def scale_gaussian_vertices(
     vertices: np.ndarray,
     scale: float,

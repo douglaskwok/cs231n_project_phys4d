@@ -90,6 +90,49 @@ def _apply_background_mask(rgb: np.ndarray, ball_mask: np.ndarray, background: s
     return out
 
 
+def _temporal_median_bg(
+    *,
+    rgb_root: Path,
+    masks_root: Path,
+    cam_id: int,
+    frames: list[int],
+    background: str,
+) -> np.ndarray:
+    """Per-pixel temporal median of the *unoccluded* background for one camera.
+
+    The room is static and the objects move, so for most pixels the object is
+    absent in the majority of frames. Taking the median over only the unmasked
+    (object-free) samples recovers the true wall/floor/table behind the objects,
+    avoiding the white "hole" that white/black masking leaves where the objects
+    spend time. Pixels that are occluded in *every* frame fall back to the flat
+    background colour.
+    """
+
+    stack: list[np.ndarray] = []
+    for frame_idx in frames:
+        tag = f"{frame_idx:05d}"
+        rgb_path = rgb_root / f"cam{cam_id:02d}" / f"frame{tag}.png"
+        mask_path = masks_root / f"cam{cam_id:02d}" / f"frame{tag}.png"
+        if not rgb_path.is_file() or not mask_path.is_file():
+            raise FileNotFoundError(f"Missing RGB/mask for cam{cam_id:02d} frame{tag}")
+        rgb = _read_rgb(rgb_path).astype(np.float32)
+        obj = _read_mask(mask_path)
+        rgb[obj] = np.nan  # exclude object pixels from the median
+        stack.append(rgb)
+
+    arr = np.stack(stack, axis=0)  # (F, H, W, 3)
+    with np.errstate(all="ignore"):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            med = np.nanmedian(arr, axis=0)  # (H, W, 3)
+    all_occluded = np.isnan(med).any(axis=2)
+    bg_value = 255.0 if background == "white" else 0.0
+    med[all_occluded] = bg_value
+    return np.clip(med, 0.0, 255.0).astype(np.uint8)
+
+
 def _resolve_cameras(arg: str | None, available: list[int], cfg_train: list[int]) -> list[int]:
     if arg is None:
         return [int(c) for c in (cfg_train or available)]
@@ -107,6 +150,7 @@ def export_background_dynerf(
     frame_start: int,
     frame_end: int | None,
     frame_stride: int,
+    inpaint: str = "flat",
 ) -> dict[str, Any]:
     import imageio.v2 as imageio
 
@@ -146,10 +190,19 @@ def export_background_dynerf(
     test_entries: list[dict] = []
     empty_masks = 0
 
+    use_median = inpaint == "temporal-median"
     for cam_id in cam_indices:
         rec = cam_by_index[cam_id]
         c2w = view_matrix_to_c2w(rec["view_matrix_row_major"])
         intr = _intrinsics(float(rec.get("fov_deg", 60.0)), width, height)
+        median_bg = (
+            _temporal_median_bg(
+                rgb_root=rgb_root, masks_root=masks_root,
+                cam_id=cam_id, frames=frames, background=background,
+            )
+            if use_median
+            else None
+        )
         for fi, frame_idx in enumerate(frames):
             tag = f"{frame_idx:05d}"
             rgb_path = rgb_root / f"cam{cam_id:02d}" / f"frame{tag}.png"
@@ -159,11 +212,15 @@ def export_background_dynerf(
             if not mask_path.is_file():
                 raise FileNotFoundError(f"Missing mask frame: {mask_path}")
 
-            rgb = _read_rgb(rgb_path)
-            ball = _read_mask(mask_path)
-            if not ball.any():
-                empty_masks += 1
-            masked = _apply_background_mask(rgb, ball, background)
+            if use_median:
+                assert median_bg is not None
+                masked = median_bg
+            else:
+                rgb = _read_rgb(rgb_path)
+                ball = _read_mask(mask_path)
+                if not ball.any():
+                    empty_masks += 1
+                masked = _apply_background_mask(rgb, ball, background)
 
             stem = f"images/cam{cam_id:02d}_{frame_idx:05d}"
             imageio.imwrite(out_dir / f"{stem}.png", masked)
@@ -190,6 +247,7 @@ def export_background_dynerf(
         "format": "dynerf_background_static",
         "source_scene": str(scene_dir),
         "background": background,
+        "inpaint": inpaint,
         "fps": float(fps),
         "cameras": cam_indices,
         "frames": frames,
@@ -208,6 +266,14 @@ def main() -> int:
     parser.add_argument("--scene-dir", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True, help="Background dataset folder to create.")
     parser.add_argument("--background", choices=("white", "black"), default="white")
+    parser.add_argument(
+        "--inpaint",
+        choices=("flat", "temporal-median"),
+        default="flat",
+        help="'flat' fills the object region with the background colour (leaves a hole "
+        "where objects always sit); 'temporal-median' reconstructs the true static "
+        "background behind moving objects via a per-pixel median over unoccluded frames.",
+    )
     parser.add_argument(
         "--cameras",
         type=str,
@@ -232,6 +298,7 @@ def main() -> int:
         frame_start=args.frame_start,
         frame_end=args.frame_end,
         frame_stride=args.frame_stride,
+        inpaint=args.inpaint,
     )
     print(json.dumps(meta, indent=2))
     print(f"Wrote background DyNeRF dataset -> {args.out.resolve()}")
