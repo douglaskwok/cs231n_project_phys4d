@@ -93,18 +93,21 @@ background (avoids cross-occlusion from background floaters):
 # uploads: object_50k/{point_cloud.ply,cfg_args}, step4c/trajectory_predicted.csv,
 #          step4a/trajectory_smoothed.csv  (all under phys4d-gs-data:/step5)
 modal run modal_app.py --step5 \
-  --canonical-rel object_50k/point_cloud.ply --cfg-args-rel object_50k/cfg_args \
+  --canonical-rel object/point_cloud.ply --cfg-args-rel object/cfg_args \
   --bounce-bg-ply-rel bg_ball12blue_med_3dgs/point_cloud/iteration_30000/point_cloud.ply \
   --object-scale 0.7057883553969182 --object-max-scale 0.03 \
-  --object-crop-radius 0.24 --composite-2d
+  --object-crop-radius 0.24 \
+  --object-opacity-boost 4.0 --composite-mode alpha
 ```
 
 Recipe knobs (clean, generalizable — no per-splat surgery):
-- `--object-max-scale 0.03` drop huge "spill" splats.
+- `--object-max-scale 0.03` drop huge "spill" splats (optional).
 - `--object-crop-radius` crop the diffuse halo in 4DGS units. Choose so
   `crop × object_scale ≈ 0.17 m` (matches the GT ball's visible radius). For 50k
   (scale 0.706) that is **0.24**; for 75k (scale 0.436) it is **~0.39**.
-- `--composite-2d` 2D alpha-matte instead of merging clouds in 3D.
+- `--composite-mode alpha` layered 2D alpha-matte (default). Use `--composite-mode
+  merge3d` or `--no-composite-2d` only for the old single-pass 3D merge.
+- `--object-opacity-boost 4.0` makes semi-transparent object splats read solid.
 
 ### Step 6 — evaluate (local CPU)
 ```bash

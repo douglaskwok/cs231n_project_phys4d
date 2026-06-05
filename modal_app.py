@@ -1944,10 +1944,18 @@ def train_bg(iterations: int = 7000, scene_rel: str = "bg_scene", out_rel: str =
 def bounce_step5_remote(
     canonical_rel: str,
     cfg_args_rel: str,
-    bg_ply_rel: str = "background_3dgs/point_cloud/iteration_7000/point_cloud.ply",
+    bg_ply_rel: str = "bg_ball12blue_med_3dgs/point_cloud/iteration_30000/point_cloud.ply",
     out_rel: str = "step5",
     object_scale: float = 0.0,
     object_crop_radius: float = 0.0,
+    object_crop_box_half_extents: str = "",
+    object_max_scale: float = 0.0,
+    object_min_opacity: float = 0.05,
+    object_opacity_boost: float = 4.0,
+    composite_2d: bool = True,
+    composite_mode: str = "alpha",
+    composite_threshold: int = 32,
+    composite_alpha_gamma: float = 1.0,
     cameras: str = "",
     skip_existing: bool = False,
 ) -> str:
@@ -1977,6 +1985,22 @@ def bounce_step5_remote(
         cmd += ["--object-scale", str(object_scale)]
     if object_crop_radius and object_crop_radius > 0:
         cmd += ["--object-crop-radius", str(object_crop_radius)]
+    if object_crop_box_half_extents:
+        cmd += ["--object-crop-box-half-extents", object_crop_box_half_extents]
+    if object_max_scale and object_max_scale > 0:
+        cmd += ["--object-max-scale", str(object_max_scale)]
+    if object_min_opacity and object_min_opacity > 0:
+        cmd += ["--object-min-opacity", str(object_min_opacity)]
+    if object_opacity_boost and object_opacity_boost != 1.0:
+        cmd += ["--object-opacity-boost", str(object_opacity_boost)]
+    if not composite_2d:
+        cmd += ["--no-composite-2d"]
+    elif composite_mode != "alpha":
+        cmd += ["--composite-mode", composite_mode]
+    if composite_threshold != 32:
+        cmd += ["--composite-threshold", str(composite_threshold)]
+    if composite_alpha_gamma != 1.0:
+        cmd += ["--composite-alpha-gamma", str(composite_alpha_gamma)]
     if cameras:
         cmd += ["--cameras", cameras]
     if skip_existing:
@@ -2401,9 +2425,17 @@ def main(
     step5_dir: str = "",
     canonical_rel: str = "object/point_cloud.ply",
     cfg_args_rel: str = "object/cfg_args",
-    bounce_bg_ply_rel: str = "background_3dgs/point_cloud/iteration_7000/point_cloud.ply",
+    bounce_bg_ply_rel: str = "bg_ball12blue_med_3dgs/point_cloud/iteration_30000/point_cloud.ply",
     object_scale: float = 0.0,
     object_crop_radius: float = 0.0,
+    object_crop_box_half_extents: str = "",
+    object_max_scale: float = 0.0,
+    object_min_opacity: float = 0.05,
+    object_opacity_boost: float = 4.0,
+    composite_2d: bool = True,
+    composite_mode: str = "alpha",
+    composite_threshold: int = 32,
+    composite_alpha_gamma: float = 1.0,
     cameras: str = "",
     skip_existing: bool = False,
 ) -> None:
@@ -2848,6 +2880,14 @@ def main(
                 bg_ply_rel=bounce_bg_ply_rel,
                 object_scale=object_scale,
                 object_crop_radius=object_crop_radius,
+                object_crop_box_half_extents=object_crop_box_half_extents,
+                object_max_scale=object_max_scale,
+                object_min_opacity=object_min_opacity,
+                object_opacity_boost=object_opacity_boost,
+                composite_2d=composite_2d,
+                composite_mode=composite_mode,
+                composite_threshold=composite_threshold,
+                composite_alpha_gamma=composite_alpha_gamma,
                 cameras=cameras,
                 skip_existing=skip_existing,
             )

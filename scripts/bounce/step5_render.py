@@ -21,6 +21,8 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SRC = _REPO_ROOT / "src"
 if str(_SRC) not in sys.path:
@@ -99,6 +101,53 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--object-crop-box-half-extents",
+        default=None,
+        help="Metric half-extents hx,hy,hz for axis-aligned box crop (requires --object-scale).",
+    )
+    parser.add_argument(
+        "--object-opacity-boost",
+        type=float,
+        default=4.0,
+        help="Multiply object splat alpha by this factor (default 4.0).",
+    )
+    parser.add_argument(
+        "--object-max-scale",
+        type=float,
+        default=None,
+        help="Drop splats above this activated scale (metric units, after --object-scale).",
+    )
+    parser.add_argument(
+        "--object-min-opacity",
+        type=float,
+        default=0.05,
+        help="Drop splats below this activated opacity before render (default 0.05).",
+    )
+    parser.add_argument(
+        "--composite-mode",
+        choices=("alpha", "depth", "threshold", "merge3d"),
+        default="alpha",
+        help="Layered composite: alpha (default), depth, threshold, or merge3d single-pass.",
+    )
+    parser.add_argument(
+        "--composite-2d",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use layered compositing (default on). --no-composite-2d forces merge3d.",
+    )
+    parser.add_argument(
+        "--composite-alpha-gamma",
+        type=float,
+        default=1.0,
+        help="Alpha matte edge sharpness in alpha composite mode (default 1.0).",
+    )
+    parser.add_argument(
+        "--composite-threshold",
+        type=int,
+        default=32,
+        help="Foreground mask threshold for layered composite (default 32).",
+    )
+    parser.add_argument(
         "--cameras",
         type=str,
         default=None,
@@ -114,6 +163,14 @@ def main() -> int:
     cam_list = None
     if args.cameras:
         cam_list = [int(x.strip()) for x in args.cameras.split(",") if x.strip()]
+
+    object_crop_box = None
+    if args.object_crop_box_half_extents:
+        parts = [float(p) for p in args.object_crop_box_half_extents.split(",") if p.strip()]
+        if len(parts) != 3:
+            print("ERROR: --object-crop-box-half-extents expects 3 comma-separated values", file=sys.stderr)
+            return 2
+        object_crop_box = np.array(parts, dtype=np.float64)
 
     if not args.force_overlay and args.cfg_args is None:
         print(
@@ -136,6 +193,14 @@ def main() -> int:
         sphere_radius_m=args.sphere_radius_m,
         object_scale=args.object_scale,
         object_crop_radius=args.object_crop_radius,
+        object_crop_box_half_extents_m=object_crop_box,
+        object_max_scale=args.object_max_scale,
+        object_min_opacity=args.object_min_opacity,
+        object_opacity_boost=args.object_opacity_boost,
+        composite_2d=args.composite_2d,
+        composite_mode=args.composite_mode,
+        composite_threshold=args.composite_threshold,
+        composite_alpha_gamma=args.composite_alpha_gamma,
         cameras=cam_list,
         skip_existing=args.skip_existing,
     )
