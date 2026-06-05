@@ -1,18 +1,29 @@
-"""Collision pipeline: multi-body (N-sphere) extension of the bounce pipeline.
+"""Collision pipeline: multi-body extension of the bounce pipeline.
 
-Reuses ``phys4d.bounce`` for extraction, Gaussian PLY handling, and per-object
-metrics; adds a coupled multi-body simulator and multi-object compositing.
+The package is intentionally lazy: metric/refit scripts should be able to use
+the lightweight physics helpers without importing Wu 4DGS/Torch render code.
 """
 
-from .physics import Body, SceneParams, count_pair_collisions, load_trajectory_csv, simulate_scene
-from .render_compose import Step5Result, run_step5
+from __future__ import annotations
 
-__all__ = [
-    "Body",
-    "SceneParams",
-    "Step5Result",
-    "count_pair_collisions",
-    "load_trajectory_csv",
-    "run_step5",
-    "simulate_scene",
-]
+_EXPORTS = {
+    "Body": ("physics", "Body"),
+    "SceneParams": ("physics", "SceneParams"),
+    "Step5Result": ("render_compose", "Step5Result"),
+    "count_pair_collisions": ("physics", "count_pair_collisions"),
+    "load_trajectory_csv": ("physics", "load_trajectory_csv"),
+    "run_step5": ("render_compose", "run_step5"),
+    "simulate_scene": ("physics", "simulate_scene"),
+}
+
+__all__ = sorted(_EXPORTS)
+
+
+def __getattr__(name: str):
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attr = _EXPORTS[name]
+    module = __import__(f"{__name__}.{module_name}", fromlist=[attr])
+    value = getattr(module, attr)
+    globals()[name] = value
+    return value

@@ -1985,6 +1985,7 @@ def bounce_step5_remote(
     canonical_rel: str,
     cfg_args_rel: str,
     bg_ply_rel: str = "bg_ball12blue_med_3dgs/point_cloud/iteration_30000/point_cloud.ply",
+    data_rel: str = "step5",
     out_rel: str = "step5",
     object_scale: float = 0.0,
     object_crop_radius: float = 0.0,
@@ -1999,10 +2000,12 @@ def bounce_step5_remote(
     cameras: str = "",
     skip_existing: bool = False,
 ) -> str:
-    """Run the real Wu-rasterizer Step 5 compositing on uploaded /data/step5 inputs."""
-    base = Path("/data/step5")
+    """Run the real Wu-rasterizer Step 5 compositing on uploaded /data/<data_rel> inputs."""
+    base = Path("/data") / data_rel.strip("/")
     if not (base / "export" / "transforms_test.json").is_file():
-        raise FileNotFoundError("No /data/step5/export/transforms_test.json. Run --upload-step5 first.")
+        raise FileNotFoundError(
+            f"No {base}/export/transforms_test.json. Run --upload-step5 first."
+        )
 
     out_dir = Path("/outputs") / out_rel
     env = {
@@ -2059,23 +2062,26 @@ def bounce_step5_remote(
     timeout=60 * 60 * 2,
 )
 def bounce_step4a_remote(
+    data_rel: str = "step4a",
     out_rel: str = "step4a",
     savgol_window: int = 9,
     savgol_polyorder: int = 2,
 ) -> str:
-    """Run Step 4a trajectory extraction on uploaded /data/step4a inputs (needs Wu CUDA exts).
+    """Run Step 4a trajectory extraction on uploaded /data/<data_rel> inputs (needs Wu CUDA exts).
 
-    Expected layout under /data/step4a (from --upload-step4a):
+    Expected layout under /data/<data_rel> (from --upload-step4a):
       object/point_cloud.ply, object/deformation.pth, object/deformation_table.pth,
       object/cfg_args
       export/frame_map.json
       scene/object_poses.csv
     """
-    base = Path("/data/step4a")
+    base = Path("/data") / data_rel.strip("/")
     if not (base / "object" / "point_cloud.ply").is_file():
-        raise FileNotFoundError("No /data/step4a/object/point_cloud.ply. Run --upload-step4a first.")
+        raise FileNotFoundError(
+            f"No {base}/object/point_cloud.ply. Run --upload-step4a first."
+        )
     if not (base / "export" / "frame_map.json").is_file():
-        raise FileNotFoundError("No /data/step4a/export/frame_map.json.")
+        raise FileNotFoundError(f"No {base}/export/frame_map.json.")
 
     out_dir = Path("/outputs") / out_rel
     env = {
@@ -2353,6 +2359,7 @@ def main(
     upload_4d: bool = False,
     train_4d: bool = False,
     train_wu_4d: bool = False,
+    train_wu_4d_spawn: bool = False,
     compose_4d: bool = False,
     export_4d_ply: bool = False,
     render_4d: bool = False,
@@ -2440,6 +2447,7 @@ def main(
     upload_step4a: bool = False,
     step4a: bool = False,
     step4a_dir: str = "",
+    step4a_data_rel: str = "step4a",
     bounce_out_rel: str = "step4a",
     upload_collision_step4a: bool = False,
     collision_step4a: bool = False,
@@ -2464,6 +2472,8 @@ def main(
     bg_dir: str = "",
     bg_name: str = "huge",
     step5_dir: str = "",
+    step5_data_rel: str = "step5",
+    step5_out_rel: str = "step5",
     canonical_rel: str = "object/point_cloud.ply",
     cfg_args_rel: str = "object/cfg_args",
     bounce_bg_ply_rel: str = "bg_ball12blue_med_3dgs/point_cloud/iteration_30000/point_cloud.ply",
@@ -2583,32 +2593,46 @@ def main(
             f"Download: modal volume get phys4d-gs-output {train_4d_model} . --force"
         )
         return
-    if train_wu_4d:
-        print(
-            train_wu_4dgs.remote(
-                model_rel=train_wu_4d_model,
-                scene_rel=wu_scene_rel,
-                iterations=wu_iterations,
-                coarse_iterations=wu_coarse_iterations,
-                time_resolution=wu_time_resolution,
-                bounds=wu_bounds,
-                foreground_loss_weight=wu_foreground_loss_weight,
-                mask_loss_weight=wu_mask_loss_weight,
-                bg_spill_loss_weight=wu_bg_spill_loss_weight,
-                area_loss_weight=wu_area_loss_weight,
-                compactness_loss_weight=wu_compactness_loss_weight,
-                scale_isotropy_loss_weight=wu_scale_isotropy_loss_weight,
-                max_scale_loss_weight=wu_max_scale_loss_weight,
-                max_gaussian_scale=wu_max_gaussian_scale,
-                cloud_isotropy_loss_weight=wu_cloud_isotropy_loss_weight,
-                silhouette_roundness_loss_weight=wu_silhouette_roundness_loss_weight,
-                trajectory_anchor_loss_weight=wu_trajectory_anchor_loss_weight,
-                camera_loss_weights=wu_camera_loss_weights,
-                densify_until_iter=wu_densify_until_iter,
-                opacity_reset_interval=wu_opacity_reset_interval,
-                start_checkpoint=wu_start_checkpoint,
-                force_aabb=wu_force_aabb,
+    if train_wu_4d or train_wu_4d_spawn:
+        call_kwargs = dict(
+            model_rel=train_wu_4d_model,
+            scene_rel=wu_scene_rel,
+            iterations=wu_iterations,
+            coarse_iterations=wu_coarse_iterations,
+            time_resolution=wu_time_resolution,
+            bounds=wu_bounds,
+            foreground_loss_weight=wu_foreground_loss_weight,
+            mask_loss_weight=wu_mask_loss_weight,
+            bg_spill_loss_weight=wu_bg_spill_loss_weight,
+            area_loss_weight=wu_area_loss_weight,
+            compactness_loss_weight=wu_compactness_loss_weight,
+            scale_isotropy_loss_weight=wu_scale_isotropy_loss_weight,
+            max_scale_loss_weight=wu_max_scale_loss_weight,
+            max_gaussian_scale=wu_max_gaussian_scale,
+            cloud_isotropy_loss_weight=wu_cloud_isotropy_loss_weight,
+            silhouette_roundness_loss_weight=wu_silhouette_roundness_loss_weight,
+            trajectory_anchor_loss_weight=wu_trajectory_anchor_loss_weight,
+            camera_loss_weights=wu_camera_loss_weights,
+            densify_until_iter=wu_densify_until_iter,
+            opacity_reset_interval=wu_opacity_reset_interval,
+            start_checkpoint=wu_start_checkpoint,
+            force_aabb=wu_force_aabb,
+        )
+        if train_wu_4d_spawn:
+            call = train_wu_4dgs.spawn(**call_kwargs)
+            call_id = getattr(call, "object_id", None) or getattr(call, "function_call_id", None) or str(call)
+            print(
+                f"Spawned Wu 4DGS training: {call_id}\n"
+                f"Model: phys4d-gs-output:/{train_wu_4d_model}\n"
+                f"Render after completion: arch -arm64 modal run modal_app.py --render-wu-4d "
+                f"--render-wu-4d-model {train_wu_4d_model} "
+                f"--render-wu-4d-iteration {wu_iterations}\n"
+                f"Download after completion: arch -arm64 modal volume get phys4d-gs-output "
+                f"{train_wu_4d_model} . --force"
             )
+            return
+        print(
+            train_wu_4dgs.remote(**call_kwargs)
         )
         print(
             f"Model: phys4d-gs-output:/{train_wu_4d_model}\n"
@@ -2874,12 +2898,13 @@ def main(
             raise FileNotFoundError(f"--step4a-dir missing object/point_cloud.ply: {src}")
         if not (src / "export" / "frame_map.json").is_file():
             raise FileNotFoundError(f"--step4a-dir missing export/frame_map.json: {src}")
-        _volume_put(src, "step4a")
-        print(f"Uploaded {src} -> phys4d-gs-data:/step4a")
+        _volume_put(src, step4a_data_rel.strip("/"))
+        print(f"Uploaded {src} -> phys4d-gs-data:/{step4a_data_rel.strip('/')}")
         return
     if step4a:
         print(
             bounce_step4a_remote.remote(
+                data_rel=step4a_data_rel,
                 out_rel=bounce_out_rel,
                 savgol_window=savgol_window,
                 savgol_polyorder=savgol_polyorder,
@@ -2911,8 +2936,8 @@ def main(
         src = (REPO_ROOT / step5_dir).resolve()
         if not (src / "export" / "transforms_test.json").is_file():
             raise FileNotFoundError(f"--step5-dir missing export/transforms_test.json: {src}")
-        _volume_put(src, "step5")
-        print(f"Uploaded {src} -> phys4d-gs-data:/step5")
+        _volume_put(src, step5_data_rel.strip("/"))
+        print(f"Uploaded {src} -> phys4d-gs-data:/{step5_data_rel.strip('/')}")
         return
     if step5:
         print(
@@ -2920,6 +2945,8 @@ def main(
                 canonical_rel=canonical_rel,
                 cfg_args_rel=cfg_args_rel,
                 bg_ply_rel=bounce_bg_ply_rel,
+                data_rel=step5_data_rel,
+                out_rel=step5_out_rel,
                 object_scale=object_scale,
                 object_crop_radius=object_crop_radius,
                 object_crop_box_half_extents=object_crop_box_half_extents,
@@ -2934,7 +2961,10 @@ def main(
                 skip_existing=skip_existing,
             )
         )
-        print("Download: modal volume get phys4d-gs-output step5 step5 --force")
+        print(
+            "Download: modal volume get phys4d-gs-output "
+            f"{step5_out_rel.strip('/')} step5 --force"
+        )
         return
     if upload_collision_step5:
         src = (REPO_ROOT / collision_step5_dir).resolve()

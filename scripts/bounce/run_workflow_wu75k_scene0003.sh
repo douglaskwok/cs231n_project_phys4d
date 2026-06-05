@@ -8,11 +8,16 @@ cd "$(dirname "$0")/../.."
 export PYTHONPATH=src
 PY="${PY:-.venv_pipeline/bin/python}"
 
-SCENE="wu75k_scene_0003_e0p93_am5p0_fullcopy"
-WU_OUT="$SCENE/4dgs_wu/wu_ball12_2s_blue_e93_am5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k/wu4dgs_wu_ball12_2s_blue_e93_am5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k"
-ITER=75000
-RUN="outputs/bounce_pipeline/$SCENE"
-MBASE="wu75k_scene0003"
+SCENE="${SCENE:-wu75k_scene_0003_e0p93_am5p0_fullcopy}"
+WU_OUT="${WU_OUT:-$SCENE/4dgs_wu/wu_ball12_2s_blue_e93_am5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k/wu4dgs_wu_ball12_2s_blue_e93_am5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k}"
+ITER="${ITER:-75000}"
+RUN="${RUN:-outputs/bounce_pipeline/$(basename "$SCENE")}"
+MBASE="${MBASE:-wu75k_scene0003}"
+MODAL="${MODAL:-modal}"
+STEP4A_DATA_REL="${STEP4A_DATA_REL:-${MBASE}_step4a_input}"
+STEP4A_OUT_REL="${STEP4A_OUT_REL:-$MBASE/step4a}"
+STEP5_DATA_REL="${STEP5_DATA_REL:-${MBASE}_step5_input}"
+STEP5_OUT_REL="${STEP5_OUT_REL:-${MBASE}_step5}"
 
 # Physics 65/35 split (applied in refit/predict only).
 TRAIN_START=0
@@ -46,12 +51,14 @@ cp -f "$GT"                                                       "$RUN/_step4a_
 "$PY" scripts/bounce/sanitize_canonical_ply.py --ply "$RUN/_step4a_stage/object/point_cloud.ply"
 
 echo "=== step4a: upload + run (GPU) ==="
-modal run modal_app.py --upload-step4a --step4a-dir "$RUN/_step4a_stage"
-modal run modal_app.py --step4a --bounce-out-rel "$MBASE/step4a"
+$MODAL run modal_app.py --upload-step4a --step4a-dir "$RUN/_step4a_stage" \
+  --step4a-data-rel "$STEP4A_DATA_REL"
+$MODAL run modal_app.py --step4a --step4a-data-rel "$STEP4A_DATA_REL" \
+  --bounce-out-rel "$STEP4A_OUT_REL"
 
 echo "=== download step4a (recursive) ==="
 rm -rf "$RUN/step4a"
-( cd "$RUN" && modal volume get phys4d-gs-output "$MBASE/step4a" --force )
+( cd "$RUN" && $MODAL volume get phys4d-gs-output "$STEP4A_OUT_REL" --force )
 
 echo "=== refit (train 0-156 / test 157-240) + predict (157-240, keep horizontal) ==="
 "$PY" scripts/bounce/refit_metric_gt.py \
@@ -67,7 +74,7 @@ echo "=== refit (train 0-156 / test 157-240) + predict (157-240, keep horizontal
   --gt-poses "$GT"
 
 SCALE=$("$PY" -c "import json;print(json.load(open('$RUN/step4b_metric/refit_metric.json'))['similarity']['scale'])")
-CROP=$(python3 -c "print(round(0.17/float('$SCALE'), 3))")
+CROP=$("$PY" -c "print(round(0.17/float('$SCALE'), 3))")
 echo "scale=$SCALE crop=$CROP"
 
 echo "=== step5: stage + run (GPU) ==="
@@ -78,11 +85,12 @@ cp -R "$RUN/_step4a_stage/object" "$RUN/_step5_stage/"
 cp -R "$RUN/_step4a_stage/scene"  "$RUN/_step5_stage/"
 cp "$RUN/step4a/trajectory_smoothed.csv" "$RUN/_step5_stage/step4a/"
 cp "$RUN/step4c/trajectory_predicted.csv" "$RUN/_step5_stage/step4c/"
-modal run modal_app.py --upload-step5 --step5-dir "$RUN/_step5_stage"
-# step5 always writes to the volume root step5/ and never clears it; wipe stale
-# renders first so the recursive download below only pulls this run's frames.
-modal volume rm phys4d-gs-output step5 -r 2>/dev/null || true
-modal run modal_app.py --step5 \
+$MODAL run modal_app.py --upload-step5 --step5-dir "$RUN/_step5_stage" \
+  --step5-data-rel "$STEP5_DATA_REL"
+$MODAL volume rm phys4d-gs-output "$STEP5_OUT_REL" -r 2>/dev/null || true
+$MODAL run modal_app.py --step5 \
+  --step5-data-rel "$STEP5_DATA_REL" \
+  --step5-out-rel "$STEP5_OUT_REL" \
   --canonical-rel object/point_cloud.ply \
   --cfg-args-rel object/cfg_args \
   --bounce-bg-ply-rel bg_ball12blue_med_3dgs/point_cloud/iteration_30000/point_cloud.ply \
@@ -91,11 +99,11 @@ modal run modal_app.py --step5 \
   --object-opacity-boost 4.0 \
   --composite-mode alpha
 
-echo "=== download step5 (recursive; writes to volume root step5/) ==="
+echo "=== download step5 (recursive from $STEP5_OUT_REL/) ==="
 rm -rf "$RUN/step5"
 mkdir -p "$RUN/step5"
-modal volume get phys4d-gs-output step5/step5_meta.json "$RUN/step5/step5_meta.json" --force
-( cd "$RUN/step5" && modal volume get phys4d-gs-output step5/renders --force )
+$MODAL volume get phys4d-gs-output "$STEP5_OUT_REL/step5_meta.json" "$RUN/step5/step5_meta.json" --force
+( cd "$RUN/step5" && $MODAL volume get phys4d-gs-output "$STEP5_OUT_REL/renders" --force )
 
 echo "=== step6 eval ==="
 MPLCONFIGDIR=/tmp/mpl "$PY" scripts/bounce/step6_eval.py \

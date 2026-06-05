@@ -8,21 +8,22 @@ cd "$(dirname "$0")/../.."
 export PYTHONPATH=src
 PY="${PY:-.venv_pipeline/bin/python}"
 
-SCENE="wu_collision_scale1p75_v1p4_sidecams_60fps_scene_0000"
-WU_A="$SCENE/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k"
-WU_B="$SCENE/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k"
-ITER=60000
-RUN="outputs/collision_pipeline/$SCENE"
-MBASE="wu_collision_scene0000"
-BG_NAME="collision_room_med"
+SCENE="${SCENE:-wu_collision_scale1p75_v1p4_sidecams_60fps_scene_0000}"
+WU_A="${WU_A:-$SCENE/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k}"
+WU_B="${WU_B:-$SCENE/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k}"
+ITER="${ITER:-60000}"
+RUN="${RUN:-outputs/collision_pipeline/$(basename "$SCENE")}"
+MBASE="${MBASE:-wu_collision_scene0000}"
+BG_NAME="${BG_NAME:-collision_room_med}"
 BG_PLY_REL="bg_${BG_NAME}_3dgs/point_cloud/iteration_30000/point_cloud.ply"
+MODAL="${MODAL:-modal}"
 
-TRAIN_START=0
-TRAIN_END=101
-TEST_START=102
-TEST_END=156
-FPS=60
-MODEL_LAST=156
+TRAIN_START="${TRAIN_START:-0}"
+TRAIN_END="${TRAIN_END:-101}"
+TEST_START="${TEST_START:-102}"
+TEST_END="${TEST_END:-156}"
+FPS="${FPS:-60}"
+MODEL_LAST="${MODEL_LAST:-156}"
 
 GT0="$RUN/_poses/object_poses_obj0.csv"
 GT1="$RUN/_poses/object_poses_obj1.csv"
@@ -30,12 +31,13 @@ GT_PAIR="$GT0,$GT1"
 
 echo "=== split combined object_poses.csv per object ==="
 mkdir -p "$RUN/_poses"
-"$PY" - <<'PY'
+"$PY" - "$SCENE" "$RUN" <<'PY'
 import csv
+import sys
 from pathlib import Path
 
-scene = Path("wu_collision_scale1p75_v1p4_sidecams_60fps_scene_0000")
-run = Path("outputs/collision_pipeline") / scene.name / "_poses"
+scene = Path(sys.argv[1])
+run = Path(sys.argv[2]) / "_poses"
 rows = list(csv.DictReader(open(scene / "object_poses.csv", encoding="utf-8")))
 fieldnames = rows[0].keys()
 for k in (0, 1):
@@ -70,12 +72,12 @@ cp -f "$GT0" "$RUN/_step4a_stage/scene/"
 cp -f "$GT1" "$RUN/_step4a_stage/scene/"
 
 echo "=== step4a: upload + run (GPU) ==="
-modal run modal_app.py --upload-collision-step4a --collision-step4a-dir "$RUN/_step4a_stage"
-modal run modal_app.py --collision-step4a --collision-out-rel "$MBASE/step4a"
+$MODAL run modal_app.py --upload-collision-step4a --collision-step4a-dir "$RUN/_step4a_stage"
+$MODAL run modal_app.py --collision-step4a --collision-out-rel "$MBASE/step4a"
 
 echo "=== download step4a ==="
 rm -rf "$RUN/step4a"
-( cd "$RUN" && modal volume get phys4d-gs-output "$MBASE/step4a" --force )
+( cd "$RUN" && $MODAL volume get phys4d-gs-output "$MBASE/step4a" --force )
 
 echo "=== refit + predict (train $TRAIN_START-$TRAIN_END / test $TEST_START-$TEST_END) ==="
 "$PY" scripts/collision/refit_metric_gt.py \
@@ -109,13 +111,14 @@ rm -rf "$BG_SCENE"
 mkdir -p "$BG_SCENE/masks"
 cp "$SCENE/config.json" "$SCENE/cameras.json" "$BG_SCENE/"
 ln -sfn "$(pwd)/$SCENE/rgb" "$BG_SCENE/rgb"
-"$PY" - <<'PY'
+"$PY" - "$SCENE" "$BG_SCENE/masks" <<'PY'
 import imageio.v2 as imageio
 import numpy as np
+import sys
 from pathlib import Path
 
-scene = Path("wu_collision_scale1p75_v1p4_sidecams_60fps_scene_0000")
-out = Path("outputs/collision_pipeline") / scene.name / "_bg_scene" / "masks"
+scene = Path(sys.argv[1])
+out = Path(sys.argv[2])
 for cam_a in sorted((scene / "masks_object_a").glob("cam*")):
     cam = cam_a.name
     cam_b = scene / "masks_object_b" / cam
@@ -138,9 +141,9 @@ PY
   --out "$RUN/_bg_export" \
   --inpaint temporal-median \
   --cameras all --frame-start 0 --frame-end "$MODEL_LAST" --frame-stride 3
-if ! modal volume ls phys4d-gs-output "$BG_PLY_REL" >/dev/null 2>&1; then
-  modal run modal_app.py --upload-bg --bg-dir "$RUN/_bg_export" --bg-name "$BG_NAME"
-  modal run modal_app.py --train-bg-job --bg-name "$BG_NAME" --iterations 30000
+if ! $MODAL volume ls phys4d-gs-output "$BG_PLY_REL" >/dev/null 2>&1; then
+  $MODAL run modal_app.py --upload-bg --bg-dir "$RUN/_bg_export" --bg-name "$BG_NAME"
+  $MODAL run modal_app.py --train-bg-job --bg-name "$BG_NAME" --iterations 30000
 else
   echo "background PLY already on volume: $BG_PLY_REL"
 fi
@@ -156,9 +159,9 @@ for k in 0 1; do
   cp "$RUN/step4c/trajectory_predicted_obj$k.csv" "$RUN/_step5_stage/step4c/"
 done
 cp -f "$GT0" "$GT1" "$RUN/_step5_stage/scene/"
-modal run modal_app.py --upload-collision-step5 --collision-step5-dir "$RUN/_step5_stage"
-modal volume rm phys4d-gs-output step5 -r 2>/dev/null || true
-modal run modal_app.py --collision-step5 \
+$MODAL run modal_app.py --upload-collision-step5 --collision-step5-dir "$RUN/_step5_stage"
+$MODAL volume rm phys4d-gs-output step5 -r 2>/dev/null || true
+$MODAL run modal_app.py --collision-step5 \
   --collision-bg-ply-rel "$BG_PLY_REL" \
   --collision-object-scale "$SCALE0,$SCALE1" \
   --collision-object-opacity-boost 4.0 \
@@ -168,8 +171,8 @@ modal run modal_app.py --collision-step5 \
 echo "=== download step5 ==="
 rm -rf "$RUN/step5"
 mkdir -p "$RUN/step5"
-modal volume get phys4d-gs-output step5/step5_meta.json "$RUN/step5/step5_meta.json" --force
-( cd "$RUN/step5" && modal volume get phys4d-gs-output step5/renders --force )
+$MODAL volume get phys4d-gs-output step5/step5_meta.json "$RUN/step5/step5_meta.json" --force
+( cd "$RUN/step5" && $MODAL volume get phys4d-gs-output step5/renders --force )
 
 echo "=== step6 eval ==="
 MPLCONFIGDIR=/tmp/mpl "$PY" scripts/collision/step6_eval.py \

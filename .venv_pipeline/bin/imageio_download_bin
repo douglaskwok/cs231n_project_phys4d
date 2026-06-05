@@ -1,0 +1,6 @@
+#!/Users/dkoffical/Documents/GitHub/cs231n_project_phys4d/.venv_pipeline/bin/python
+import sys
+from imageio.__main__ import download_bin_main
+if __name__ == '__main__':
+    sys.argv[0] = sys.argv[0].removesuffix('.exe')
+    sys.exit(download_bin_main())
