@@ -174,7 +174,7 @@ np.savetxt("trajectory_raw.csv",
            header="frame,t_sec,x,y,z", delimiter=",", comments="")
 ```
 
-Apply Savitzky-Golay (`window_length=5`, `polyorder=2`) per axis and write `trajectory_smoothed.csv`. Reduce polyorder to 1 if bounce inflections get rounded off.
+Apply Savitzky-Golay (`window_length=9`, `polyorder=2`) per axis and write `trajectory_smoothed.csv` (use a smaller odd window on very short train clips). Reduce polyorder to 1 if bounce inflections get rounded off.
 
 ### Outputs (`step4a/`)
 - `trajectory_raw.csv`, `trajectory_smoothed.csv` — schema `frame, t_sec, x, y, z`

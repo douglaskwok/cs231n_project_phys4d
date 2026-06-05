@@ -24,6 +24,14 @@ Modal:
   modal run modal_app.py --train-visual-dynamics # project.md dynamics (GPU)
   modal run modal_app.py --upload-visual-pipeline
   modal run modal_app.py --visual-pipeline       # rollout + warp E2E
+
+Bounce pipeline (wu-pred Step 4a / Step 5 real Gaussian compositing):
+  modal run modal_app.py --upload-bg --bg-dir <background_export>
+  modal run modal_app.py --train-bg-job          # static background 3DGS
+  modal run modal_app.py --upload-step4a --step4a-dir <scene>
+  modal run modal_app.py --step4a                # trajectory extraction (Wu CUDA exts)
+  modal run modal_app.py --upload-step5 --step5-dir <scene>
+  modal run modal_app.py --step5                 # composite object + background, render held-out cams
 """
 
 from __future__ import annotations
@@ -159,6 +167,32 @@ _wu4dgs_image = (
         "git clone --recursive --depth 1 https://github.com/hustvl/4DGaussians.git /opt/wu4dgs",
         "pip install -e /opt/wu4dgs/submodules/depth-diff-gaussian-rasterization",
         "pip install -e /opt/wu4dgs/submodules/simple-knn",
+    )
+)
+
+# Bounce pipeline image (wu-pred Step 4a / Step 5). Provides the Wu
+# depth-diff rasterizer + simple-knn, plus the local src/scripts/third_party
+# trees needed by step4a_extract.py and step5_render.py.
+_wu_image = (
+    modal.Image.from_registry("pytorch/pytorch:2.2.2-cuda12.1-cudnn8-devel")
+    .apt_install("git", "build-essential", "cmake", "libgl1", "libglib2.0-0")
+    .pip_install(
+        "plyfile", "tqdm", "opencv-python-headless", "numpy<2", "ninja",
+        "imageio", "scipy", "matplotlib", "mmcv", "torchvision", "open3d",
+    )
+    .env({"TORCH_CUDA_ARCH_LIST": "8.6+PTX"})
+    .run_commands(
+        "git clone https://github.com/hustvl/4DGaussians /opt/wu_src",
+        "cd /opt/wu_src && git submodule update --init --recursive",
+        "pip install /opt/wu_src/submodules/depth-diff-gaussian-rasterization",
+        "pip install /opt/wu_src/submodules/simple-knn",
+    )
+    .add_local_dir(str(REPO_ROOT / "src"), remote_path="/repo/src", ignore=["__pycache__", ".DS_Store"])
+    .add_local_dir(str(REPO_ROOT / "scripts"), remote_path="/repo/scripts", ignore=["__pycache__", ".DS_Store"])
+    .add_local_dir(
+        str(REPO_ROOT / "third_party" / "4DGaussians"),
+        remote_path="/repo/third_party/4DGaussians",
+        ignore=["__pycache__", ".DS_Store", ".git", "submodules/**"],
     )
 )
 
@@ -1907,6 +1941,315 @@ def run_visual_dynamics_pipeline_remote(
 
 
 @app.function(
+    image=_gs_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 3,
+)
+def train_bg(iterations: int = 7000, scene_rel: str = "bg_scene", out_rel: str = "background_3dgs") -> str:
+    """Train a static background 3DGS on /data/<scene_rel> (ball masked out)."""
+    import shutil
+
+    scene = Path("/data") / scene_rel
+    if not (scene / "transforms_train.json").is_file():
+        raise FileNotFoundError(f"No background scene at {scene}. Run --upload-bg first.")
+
+    model_dir = Path("/outputs") / out_rel
+    if model_dir.exists():
+        shutil.rmtree(model_dir)
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "python", "/opt/gs/train.py",
+        "-s", str(scene), "-m", str(model_dir),
+        "--iterations", str(iterations), "--white_background",
+    ]
+    try:
+        subprocess.run([*cmd, "--disable_viewer"], check=True, cwd="/opt/gs")
+    except subprocess.CalledProcessError:
+        subprocess.run(cmd, check=True, cwd="/opt/gs")
+
+    output_volume.commit()
+    plys = sorted((model_dir / "point_cloud").glob("iteration_*")) if (model_dir / "point_cloud").is_dir() else []
+    last = plys[-1].name if plys else "none"
+    return f"background 3DGS -> phys4d-gs-output:{model_dir} ({last})"
+
+
+@app.function(
+    image=_wu_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 3,
+)
+def bounce_step5_remote(
+    canonical_rel: str,
+    cfg_args_rel: str,
+    bg_ply_rel: str = "bg_ball12blue_med_3dgs/point_cloud/iteration_30000/point_cloud.ply",
+    out_rel: str = "step5",
+    object_scale: float = 0.0,
+    object_crop_radius: float = 0.0,
+    object_crop_box_half_extents: str = "",
+    object_max_scale: float = 0.0,
+    object_min_opacity: float = 0.05,
+    object_opacity_boost: float = 4.0,
+    composite_2d: bool = True,
+    composite_mode: str = "alpha",
+    composite_threshold: int = 32,
+    composite_alpha_gamma: float = 1.0,
+    cameras: str = "",
+    skip_existing: bool = False,
+) -> str:
+    """Run the real Wu-rasterizer Step 5 compositing on uploaded /data/step5 inputs."""
+    base = Path("/data/step5")
+    if not (base / "export" / "transforms_test.json").is_file():
+        raise FileNotFoundError("No /data/step5/export/transforms_test.json. Run --upload-step5 first.")
+
+    out_dir = Path("/outputs") / out_rel
+    env = {
+        **os.environ,
+        "PYTHONPATH": "/repo/src:/repo/third_party/4DGaussians",
+        "WU_4DGS_ROOT": "/repo/third_party/4DGaussians",
+    }
+    cmd = [
+        sys.executable, "/repo/scripts/bounce/step5_render.py",
+        "--canonical", str(base / canonical_rel),
+        "--bg-ply", str(Path("/outputs") / bg_ply_rel),
+        "--predicted", str(base / "step4c" / "trajectory_predicted.csv"),
+        "--ref-traj", str(base / "step4a" / "trajectory_smoothed.csv"),
+        "--dynerf-export", str(base / "export"),
+        "--cfg-args", str(base / cfg_args_rel),
+        "--scene-dir", str(base / "scene"),
+        "--out", str(out_dir),
+    ]
+    if object_scale and object_scale > 0:
+        cmd += ["--object-scale", str(object_scale)]
+    if object_crop_radius and object_crop_radius > 0:
+        cmd += ["--object-crop-radius", str(object_crop_radius)]
+    if object_crop_box_half_extents:
+        cmd += ["--object-crop-box-half-extents", object_crop_box_half_extents]
+    if object_max_scale and object_max_scale > 0:
+        cmd += ["--object-max-scale", str(object_max_scale)]
+    if object_min_opacity and object_min_opacity > 0:
+        cmd += ["--object-min-opacity", str(object_min_opacity)]
+    if object_opacity_boost and object_opacity_boost != 1.0:
+        cmd += ["--object-opacity-boost", str(object_opacity_boost)]
+    if not composite_2d:
+        cmd += ["--no-composite-2d"]
+    elif composite_mode != "alpha":
+        cmd += ["--composite-mode", composite_mode]
+    if composite_threshold != 32:
+        cmd += ["--composite-threshold", str(composite_threshold)]
+    if composite_alpha_gamma != 1.0:
+        cmd += ["--composite-alpha-gamma", str(composite_alpha_gamma)]
+    if cameras:
+        cmd += ["--cameras", cameras]
+    if skip_existing:
+        cmd += ["--skip-existing"]
+    subprocess.run(cmd, check=True, env=env)
+    output_volume.commit()
+    meta = out_dir / "step5_meta.json"
+    text = meta.read_text(encoding="utf-8") if meta.is_file() else "(no meta)"
+    return f"step5 -> phys4d-gs-output:{out_dir}\n{text}"
+
+
+@app.function(
+    image=_wu_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 2,
+)
+def bounce_step4a_remote(
+    out_rel: str = "step4a",
+    savgol_window: int = 9,
+    savgol_polyorder: int = 2,
+) -> str:
+    """Run Step 4a trajectory extraction on uploaded /data/step4a inputs (needs Wu CUDA exts).
+
+    Expected layout under /data/step4a (from --upload-step4a):
+      object/point_cloud.ply, object/deformation.pth, object/deformation_table.pth,
+      object/cfg_args
+      export/frame_map.json
+      scene/object_poses.csv
+    """
+    base = Path("/data/step4a")
+    if not (base / "object" / "point_cloud.ply").is_file():
+        raise FileNotFoundError("No /data/step4a/object/point_cloud.ply. Run --upload-step4a first.")
+    if not (base / "export" / "frame_map.json").is_file():
+        raise FileNotFoundError("No /data/step4a/export/frame_map.json.")
+
+    out_dir = Path("/outputs") / out_rel
+    env = {
+        **os.environ,
+        "PYTHONPATH": "/repo/src:/repo/third_party/4DGaussians",
+        "WU_4DGS_ROOT": "/repo/third_party/4DGaussians",
+        "MPLCONFIGDIR": "/tmp/mpl",
+    }
+    cmd = [
+        sys.executable, "/repo/scripts/bounce/step4a_extract.py",
+        "--canonical", str(base / "object" / "point_cloud.ply"),
+        "--deform", str(base / "object"),
+        "--cfg-args", str(base / "object" / "cfg_args"),
+        "--dynerf-export", str(base / "export"),
+        "--gt-poses", str(base / "scene" / "object_poses.csv"),
+        "--out", str(out_dir),
+        "--device", "cuda",
+        "--savgol-window", str(savgol_window),
+        "--savgol-polyorder", str(savgol_polyorder),
+    ]
+    subprocess.run(cmd, check=True, env=env)
+    output_volume.commit()
+    meta = out_dir / "step4a_meta.json"
+    text = meta.read_text(encoding="utf-8") if meta.is_file() else "(no meta)"
+    return f"step4a -> phys4d-gs-output:{out_dir}\n{text}"
+
+
+@app.function(
+    image=_wu_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 3,
+)
+def collision_step4a_remote(
+    out_rel: str = "step4a",
+    savgol_window: int = 9,
+    savgol_polyorder: int = 2,
+) -> str:
+    """Run collision Step 4a (per-object trajectory extraction) on /data/step4a."""
+    base = Path("/data/step4a")
+    export = base / "export"
+    for k in (0, 1):
+        obj = base / f"obj{k}"
+        if not (obj / "point_cloud.ply").is_file():
+            raise FileNotFoundError(f"No /data/step4a/obj{k}/point_cloud.ply. Run --upload-collision-step4a first.")
+    if not (export / "frame_map.json").is_file():
+        raise FileNotFoundError("No /data/step4a/export/frame_map.json.")
+
+    out_dir = Path("/outputs") / out_rel
+    env = {
+        **os.environ,
+        "PYTHONPATH": "/repo/src:/repo/third_party/4DGaussians",
+        "WU_4DGS_ROOT": "/repo/third_party/4DGaussians",
+        "MPLCONFIGDIR": "/tmp/mpl",
+    }
+    cmd = [
+        sys.executable,
+        "/repo/scripts/collision/step4a_extract.py",
+        "--canonical",
+        f"{base / 'obj0' / 'point_cloud.ply'},{base / 'obj1' / 'point_cloud.ply'}",
+        "--deform",
+        f"{base / 'obj0' / 'deformation.pth'},{base / 'obj1' / 'deformation.pth'}",
+        "--cfg-args",
+        f"{base / 'obj0' / 'cfg_args'},{base / 'obj1' / 'cfg_args'}",
+        "--dynerf-export",
+        f"{export},{export}",
+        "--gt-poses",
+        f"{base / 'scene' / 'object_poses_obj0.csv'},{base / 'scene' / 'object_poses_obj1.csv'}",
+        "--out",
+        str(out_dir),
+        "--device",
+        "cuda",
+        "--savgol-window",
+        str(savgol_window),
+        "--savgol-polyorder",
+        str(savgol_polyorder),
+    ]
+    subprocess.run(cmd, check=True, env=env)
+    output_volume.commit()
+    meta = out_dir / "step4a_meta.json"
+    text = meta.read_text(encoding="utf-8") if meta.is_file() else "(no meta)"
+    return f"collision step4a -> phys4d-gs-output:{out_dir}\n{text}"
+
+
+@app.function(
+    image=_wu_image,
+    gpu="A10G",
+    volumes={"/data": data_volume, "/outputs": output_volume},
+    timeout=60 * 60 * 3,
+)
+def collision_step5_remote(
+    bg_ply_rel: str,
+    out_rel: str = "step5",
+    object_scale: str = "",
+    object_crop_radius: str = "",
+    object_crop_box_half_extents: str = "0.21,0.21,0.13125",
+    object_max_scale: str = "0.04,0.04",
+    object_min_opacity: str = "0.05,0.05",
+    object_opacity_boost: float = 4.0,
+    composite_2d: bool = True,
+    composite_mode: str = "alpha",
+    composite_threshold: int = 32,
+    composite_alpha_gamma: float = 1.0,
+    cameras: str = "",
+    skip_existing: bool = False,
+) -> str:
+    """Run collision Step 5 (multi-object composite render) on /data/step5."""
+    base = Path("/data/step5")
+    if not (base / "export" / "transforms_test.json").is_file():
+        raise FileNotFoundError("No /data/step5/export/transforms_test.json. Run --upload-collision-step5 first.")
+
+    out_dir = Path("/outputs") / out_rel
+    env = {
+        **os.environ,
+        "PYTHONPATH": "/repo/src:/repo/third_party/4DGaussians",
+        "WU_4DGS_ROOT": "/repo/third_party/4DGaussians",
+    }
+    cmd = [
+        sys.executable,
+        "/repo/scripts/collision/step5_render.py",
+        "--canonical",
+        f"{base / 'obj0' / 'point_cloud.ply'},{base / 'obj1' / 'point_cloud.ply'}",
+        "--bg-ply",
+        str(Path("/outputs") / bg_ply_rel),
+        "--predicted",
+        f"{base / 'step4c' / 'trajectory_predicted_obj0.csv'},{base / 'step4c' / 'trajectory_predicted_obj1.csv'}",
+        "--ref-traj",
+        f"{base / 'step4a' / 'obj0' / 'trajectory_smoothed.csv'},{base / 'step4a' / 'obj1' / 'trajectory_smoothed.csv'}",
+        "--dynerf-export",
+        str(base / "export"),
+        "--cfg-args",
+        f"{base / 'obj0' / 'cfg_args'},{base / 'obj1' / 'cfg_args'}",
+        "--scene-dir",
+        str(base / "scene"),
+        "--out",
+        str(out_dir),
+    ]
+    if object_scale:
+        cmd += ["--object-scale", object_scale]
+    if object_crop_radius:
+        cmd += ["--object-crop-radius", object_crop_radius]
+    if object_crop_box_half_extents:
+        cmd += ["--object-crop-box-half-extents", object_crop_box_half_extents]
+    if object_max_scale:
+        cmd += ["--object-max-scale", object_max_scale]
+    if object_min_opacity:
+        cmd += ["--object-min-opacity", object_min_opacity]
+    if object_opacity_boost and object_opacity_boost != 1.0:
+        cmd += ["--object-opacity-boost", str(object_opacity_boost)]
+    if not composite_2d:
+        cmd += ["--no-composite-2d"]
+    elif composite_mode != "alpha":
+        cmd += ["--composite-mode", composite_mode]
+    if composite_threshold != 32:
+        cmd += ["--composite-threshold", str(composite_threshold)]
+    if composite_alpha_gamma != 1.0:
+        cmd += ["--composite-alpha-gamma", str(composite_alpha_gamma)]
+    if cameras:
+        cmd += ["--cameras", cameras]
+    if skip_existing:
+        cmd += ["--skip-existing"]
+    subprocess.run(cmd, check=True, env=env)
+    output_volume.commit()
+    meta = out_dir / "step5_meta.json"
+    text = meta.read_text(encoding="utf-8") if meta.is_file() else "(no meta)"
+    return f"collision step5 -> phys4d-gs-output:{out_dir}\n{text}"
+
+
+def _volume_put(local: Path, remote: str, *, volume: str = "phys4d-gs-data") -> None:
+    subprocess.run(["modal", "volume", "rm", volume, remote, "-r"], check=False)
+    subprocess.run(["modal", "volume", "put", volume, str(local), remote], check=True)
+
+
+@app.function(
     image=_torch_image,
     volumes={"/outputs": output_volume},
     timeout=60 * 30,
@@ -2090,6 +2433,52 @@ def main(
     eval_4d_dry_run_max: int = 0,
     frame: int = 0,
     iterations: int = 7000,
+    upload_bg: bool = False,
+    train_bg_job: bool = False,
+    upload_step5: bool = False,
+    step5: bool = False,
+    upload_step4a: bool = False,
+    step4a: bool = False,
+    step4a_dir: str = "",
+    bounce_out_rel: str = "step4a",
+    upload_collision_step4a: bool = False,
+    collision_step4a: bool = False,
+    collision_step4a_dir: str = "",
+    collision_out_rel: str = "step4a",
+    upload_collision_step5: bool = False,
+    collision_step5: bool = False,
+    collision_step5_dir: str = "",
+    collision_bg_ply_rel: str = "bg_collision_room_3dgs/point_cloud/iteration_30000/point_cloud.ply",
+    collision_object_scale: str = "",
+    collision_object_crop_radius: str = "",
+    collision_object_crop_box_half_extents: str = "0.21,0.21,0.13125",
+    collision_object_max_scale: str = "0.04,0.04",
+    collision_object_min_opacity: str = "0.05,0.05",
+    collision_object_opacity_boost: float = 4.0,
+    collision_composite_2d: bool = True,
+    collision_composite_mode: str = "alpha",
+    collision_composite_threshold: int = 32,
+    collision_composite_alpha_gamma: float = 1.0,
+    savgol_window: int = 9,
+    savgol_polyorder: int = 2,
+    bg_dir: str = "",
+    bg_name: str = "huge",
+    step5_dir: str = "",
+    canonical_rel: str = "object/point_cloud.ply",
+    cfg_args_rel: str = "object/cfg_args",
+    bounce_bg_ply_rel: str = "bg_ball12blue_med_3dgs/point_cloud/iteration_30000/point_cloud.ply",
+    object_scale: float = 0.0,
+    object_crop_radius: float = 0.0,
+    object_crop_box_half_extents: str = "",
+    object_max_scale: float = 0.0,
+    object_min_opacity: float = 0.05,
+    object_opacity_boost: float = 4.0,
+    composite_2d: bool = True,
+    composite_mode: str = "alpha",
+    composite_threshold: int = 32,
+    composite_alpha_gamma: float = 1.0,
+    cameras: str = "",
+    skip_existing: bool = False,
 ) -> None:
     if generate_collision_variants:
         print(
@@ -2463,5 +2852,115 @@ def main(
         print(
             f"Download: modal volume get phys4d-gs-output {pipeline_out_rel} . --force"
         )
+        return
+    if upload_bg:
+        src = (REPO_ROOT / bg_dir).resolve()
+        if not (src / "transforms_train.json").is_file():
+            raise FileNotFoundError(f"--bg-dir missing transforms_train.json: {src}")
+        _volume_put(src, f"bg_{bg_name}")
+        print(f"Uploaded {src} -> phys4d-gs-data:/bg_{bg_name}")
+        return
+    if train_bg_job:
+        bg_out_rel = f"bg_{bg_name}_3dgs"
+        print(train_bg.remote(iterations=iterations, scene_rel=f"bg_{bg_name}", out_rel=bg_out_rel))
+        print(
+            "Download: modal volume get phys4d-gs-output "
+            f"{bg_out_rel}/point_cloud/iteration_{iterations}/point_cloud.ply background.ply --force"
+        )
+        return
+    if upload_step4a:
+        src = (REPO_ROOT / step4a_dir).resolve()
+        if not (src / "object" / "point_cloud.ply").is_file():
+            raise FileNotFoundError(f"--step4a-dir missing object/point_cloud.ply: {src}")
+        if not (src / "export" / "frame_map.json").is_file():
+            raise FileNotFoundError(f"--step4a-dir missing export/frame_map.json: {src}")
+        _volume_put(src, "step4a")
+        print(f"Uploaded {src} -> phys4d-gs-data:/step4a")
+        return
+    if step4a:
+        print(
+            bounce_step4a_remote.remote(
+                out_rel=bounce_out_rel,
+                savgol_window=savgol_window,
+                savgol_polyorder=savgol_polyorder,
+            )
+        )
+        print(f"Download: modal volume get phys4d-gs-output {bounce_out_rel} <local> --force")
+        return
+    if upload_collision_step4a:
+        src = (REPO_ROOT / collision_step4a_dir).resolve()
+        for k in (0, 1):
+            if not (src / f"obj{k}" / "point_cloud.ply").is_file():
+                raise FileNotFoundError(f"--collision-step4a-dir missing obj{k}/point_cloud.ply: {src}")
+        if not (src / "export" / "frame_map.json").is_file():
+            raise FileNotFoundError(f"--collision-step4a-dir missing export/frame_map.json: {src}")
+        _volume_put(src, "step4a")
+        print(f"Uploaded {src} -> phys4d-gs-data:/step4a")
+        return
+    if collision_step4a:
+        print(
+            collision_step4a_remote.remote(
+                out_rel=collision_out_rel,
+                savgol_window=savgol_window,
+                savgol_polyorder=savgol_polyorder,
+            )
+        )
+        print(f"Download: modal volume get phys4d-gs-output {collision_out_rel} <local> --force")
+        return
+    if upload_step5:
+        src = (REPO_ROOT / step5_dir).resolve()
+        if not (src / "export" / "transforms_test.json").is_file():
+            raise FileNotFoundError(f"--step5-dir missing export/transforms_test.json: {src}")
+        _volume_put(src, "step5")
+        print(f"Uploaded {src} -> phys4d-gs-data:/step5")
+        return
+    if step5:
+        print(
+            bounce_step5_remote.remote(
+                canonical_rel=canonical_rel,
+                cfg_args_rel=cfg_args_rel,
+                bg_ply_rel=bounce_bg_ply_rel,
+                object_scale=object_scale,
+                object_crop_radius=object_crop_radius,
+                object_crop_box_half_extents=object_crop_box_half_extents,
+                object_max_scale=object_max_scale,
+                object_min_opacity=object_min_opacity,
+                object_opacity_boost=object_opacity_boost,
+                composite_2d=composite_2d,
+                composite_mode=composite_mode,
+                composite_threshold=composite_threshold,
+                composite_alpha_gamma=composite_alpha_gamma,
+                cameras=cameras,
+                skip_existing=skip_existing,
+            )
+        )
+        print("Download: modal volume get phys4d-gs-output step5 step5 --force")
+        return
+    if upload_collision_step5:
+        src = (REPO_ROOT / collision_step5_dir).resolve()
+        if not (src / "export" / "transforms_test.json").is_file():
+            raise FileNotFoundError(f"--collision-step5-dir missing export/transforms_test.json: {src}")
+        _volume_put(src, "step5")
+        print(f"Uploaded {src} -> phys4d-gs-data:/step5")
+        return
+    if collision_step5:
+        print(
+            collision_step5_remote.remote(
+                bg_ply_rel=collision_bg_ply_rel,
+                object_scale=collision_object_scale,
+                object_crop_radius=collision_object_crop_radius,
+                object_crop_box_half_extents=collision_object_crop_box_half_extents,
+                object_max_scale=collision_object_max_scale,
+                object_min_opacity=collision_object_min_opacity,
+                object_opacity_boost=collision_object_opacity_boost,
+                composite_2d=collision_composite_2d,
+                composite_mode=collision_composite_mode,
+                composite_threshold=collision_composite_threshold,
+                composite_alpha_gamma=collision_composite_alpha_gamma,
+                cameras=cameras,
+                skip_existing=skip_existing,
+            )
+        )
+        print("Download: modal volume get phys4d-gs-output step5 step5 --force")
         return
     print(smoke_gpu.remote())

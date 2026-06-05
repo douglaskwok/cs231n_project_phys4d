@@ -1,27 +1,10 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
-*.py[codz]
-*$py.class
-
-# C extensions
-*.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
+*.py[cod]
 *.egg-info/
+<<<<<<< HEAD
+.venv/
+=======
 .installed.cfg
 *.egg
 MANIFEST
@@ -153,91 +136,31 @@ activemq-data/
 breakglass.txt
 .venv
 env/
+>>>>>>> origin/main
 venv/
-ENV/
-env.bak/
-venv.bak/
+.env
 
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# PyCharm
-#   JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#   and can be added to the global gitignore or merged into this file.  For a more nuclear
-#   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
-
-# Abstra
-#   Abstra is an AI-powered process automation framework.
-#   Ignore directories containing user credentials, local state, and settings.
-#   Learn more at https://abstra.io/docs
-.abstra/
-
-# Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
-#   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer, 
-#   you could uncomment the following to ignore the entire vscode folder
-# .vscode/
-# Temporary file for partial code execution
-tempCodeRunnerFile.py
-
-# Ruff stuff:
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
-
-# Marimo
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-
-# Streamlit
-.streamlit/secrets.toml
-
-# Generated M2 dataset exports (large RGB/mask trees)
+# Pipeline outputs (Steps 4–6)
 outputs/
 
-# Trained 3DGS checkpoints (download from Modal volume)
-gs_sphere_bounce/
-local_gs_out/
+# Teammate artifacts (Steps 1–3) — large generated trees
+dataset/outputs/
+**/masks_sam2/
+**/4dgs_wu/
+**/background_3dgs/
 
-# Trained 4DGS checkpoints, metrics, and downloaded renders (Modal volume get)
-4dgs_sphere_bounce/
-metrics_4dgs.json
-latest/
-orbit_latest/
+# Generated scene / run trees dropped at repo root (local experiments, not source)
+/scene_*/
+/wu_debug_*/
+/wu4dgs_*/
 
-# Visual dynamics checkpoints and E2E pipeline artifacts (Modal volume get)
-/visual_dynamics/
-/visual_dynamics_pipeline/
+# Local data mirrors (Drive / Modal downloads — not source)
+_gdrive_staging/
+_robdl/
 
-# Teammate ping-pong exports (12-view set is tracked; ignore regenerated 10-view)
-pybullet_outputs/ping_pong_bounce_10view_*
-pybullet_tabletop_10view.ipynb
+# Wu submodule build artifacts
+third_party/4DGaussians/output/
+third_party/4DGaussians/**/__pycache__/
 
 # macOS local files
 .DS_Store
@@ -259,41 +182,33 @@ pybullet_tabletop_10view.ipynb
 # External reference repos cloned for local inspection / Modal image builds
 /external/
 
+# Checkpoints & geometry (downloaded or trained locally)
 # Large generated model artifacts
 *.pth
 *.pt
 *.ckpt
-*.safetensors
-
-# Generated media artifacts
-*.mp4
-*.mov
-*.avi
-*.mkv
-*.m4v
-*.webm
-*.gif
-*.png
-*.jpg
-*.jpeg
-*.tif
-*.tiff
-*.bmp
-*.exr
-*.webp
-*.wav
-*.mp3
-*.flac
-*.aac
-*.ogg
-
-# Large generated geometry/data artifacts
 *.ply
 *.splat
 *.npy
 *.npz
-*.h5
-*.hdf5
+
+# Media
+*.mp4
+*.mov
+*.gif
+*.png
+*.jpg
+*.jpeg
+*.exr
+*.webp
+
+# Jupyter
+.ipynb_checkpoints/
 
 # macOS
 .DS_Store
+
+# Tooling
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
