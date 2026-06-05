@@ -1,0 +1,97 @@
+{
+  "generated_at_utc": "2026-05-27T07:35:54.162538+00:00",
+  "source": "dataset/export_room_physics_12view.py",
+  "output_dir": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075",
+  "scenario": "collision",
+  "scenario_params": {
+    "scenario": "collision",
+    "object_half_extents_m": [
+      0.12,
+      0.12,
+      0.05
+    ],
+    "object_full_size_m": [
+      0.24,
+      0.24,
+      0.1
+    ],
+    "object_a_mass_kg": 0.1,
+    "object_b_mass_kg": 0.16,
+    "object_restitution": 0.75,
+    "object_lateral_friction": 0.02,
+    "velocity_scale": 1.4,
+    "object_a_initial_velocity_m_s": 1.3299999999999998,
+    "object_b_initial_velocity_m_s": 1.0499999999999998,
+    "table_top_z_m": 0.35
+  },
+  "num_frames": 157,
+  "num_cameras": 12,
+  "camera_names": [
+    "front",
+    "front_right",
+    "right",
+    "back_right",
+    "back",
+    "back_left",
+    "left",
+    "front_left",
+    "top",
+    "top_oblique",
+    "low_front_left",
+    "low_back_right"
+  ],
+  "video_fps": 60.0,
+  "sim_hz": 480.0,
+  "steps_per_frame": 8,
+  "duration_s": 2.6,
+  "environment": {
+    "name": "room_with_floor_and_walls",
+    "floor_z_m": 0.0,
+    "half_extents_m": [
+      2.6,
+      2.6,
+      2.2
+    ],
+    "wall_thickness_m": 0.06,
+    "floor_thickness_m": 0.06,
+    "has_ceiling": false,
+    "anchor_markers": [
+      "back_blue",
+      "back_yellow",
+      "front_red",
+      "left_teal",
+      "right_green",
+      "floor_marker"
+    ],
+    "body_ids": {
+      "floor": 0,
+      "front_wall": 1,
+      "back_wall": 2,
+      "left_wall": 3,
+      "right_wall": 4,
+      "back_blue": 5,
+      "back_yellow": 6,
+      "front_red": 7,
+      "left_teal": 8,
+      "right_green": 9,
+      "floor_marker": 10
+    }
+  },
+  "empty_masks": {
+    "objects": 0,
+    "table": 0,
+    "object_table": 0
+  },
+  "mask_outputs": {
+    "objects": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks",
+    "table": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks_table",
+    "objects_table": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks_object_table",
+    "per_object": {
+      "object_a": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks_object_a",
+      "object_b": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks_object_b"
+    }
+  },
+  "videos_written": true,
+  "render_camera_names": "all",
+  "video_camera_names": "all"
+}

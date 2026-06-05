@@ -1,0 +1,147 @@
+{
+  "generated_at_utc": "2026-05-27T07:46:19.120514+00:00",
+  "scenario": "collision",
+  "scenario_dir": "dataset/outputs/phys4d_final/collision_2x2x2_60fps",
+  "num_scenes": 8,
+  "fps": 60.0,
+  "sim_hz": 480.0,
+  "duration_sec": 2.6,
+  "steps_per_frame": 8,
+  "num_cameras": 12,
+  "image_size": [
+    960,
+    544
+  ],
+  "videos_written": true,
+  "render_camera_names": "all",
+  "video_camera_names": "all",
+  "param_names": [
+    "mass_a_kg",
+    "velocity_scale",
+    "restitution"
+  ],
+  "param_grid": {
+    "mass_a_kg": [
+      0.1,
+      0.44
+    ],
+    "velocity_scale": [
+      0.6,
+      1.4
+    ],
+    "restitution": [
+      0.25,
+      0.75
+    ]
+  },
+  "fixed_params": {
+    "environment": "room",
+    "object_count": 2,
+    "object_kind": "rigid_box",
+    "object_full_size_m": [
+      0.24,
+      0.24,
+      0.1
+    ],
+    "object_b_mass_kg": 0.16,
+    "object_lateral_friction": 0.02,
+    "baseline_vel_a_m_s": 0.95,
+    "baseline_vel_b_m_s": 0.75,
+    "table_top_z_m": 0.35,
+    "table_size_m": [
+      5.2,
+      5.2,
+      0.06
+    ]
+  },
+  "scenes": [
+    {
+      "scene_id": "scene_0000_col_m100_v060_r025",
+      "path": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0000_col_m100_v060_r025",
+      "scenario": "collision",
+      "mass_a_kg": 0.1,
+      "velocity_scale": 0.6,
+      "restitution": 0.25,
+      "config": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0000_col_m100_v060_r025/config.json",
+      "metadata": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0000_col_m100_v060_r025/metadata.json",
+      "object_poses": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0000_col_m100_v060_r025/object_poses.csv"
+    },
+    {
+      "scene_id": "scene_0001_col_m100_v060_r075",
+      "path": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0001_col_m100_v060_r075",
+      "scenario": "collision",
+      "mass_a_kg": 0.1,
+      "velocity_scale": 0.6,
+      "restitution": 0.75,
+      "config": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0001_col_m100_v060_r075/config.json",
+      "metadata": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0001_col_m100_v060_r075/metadata.json",
+      "object_poses": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0001_col_m100_v060_r075/object_poses.csv"
+    },
+    {
+      "scene_id": "scene_0002_col_m100_v140_r025",
+      "path": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0002_col_m100_v140_r025",
+      "scenario": "collision",
+      "mass_a_kg": 0.1,
+      "velocity_scale": 1.4,
+      "restitution": 0.25,
+      "config": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0002_col_m100_v140_r025/config.json",
+      "metadata": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0002_col_m100_v140_r025/metadata.json",
+      "object_poses": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0002_col_m100_v140_r025/object_poses.csv"
+    },
+    {
+      "scene_id": "scene_0003_col_m100_v140_r075",
+      "path": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075",
+      "scenario": "collision",
+      "mass_a_kg": 0.1,
+      "velocity_scale": 1.4,
+      "restitution": 0.75,
+      "config": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/config.json",
+      "metadata": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/metadata.json",
+      "object_poses": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/object_poses.csv"
+    },
+    {
+      "scene_id": "scene_0004_col_m440_v060_r025",
+      "path": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0004_col_m440_v060_r025",
+      "scenario": "collision",
+      "mass_a_kg": 0.44,
+      "velocity_scale": 0.6,
+      "restitution": 0.25,
+      "config": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0004_col_m440_v060_r025/config.json",
+      "metadata": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0004_col_m440_v060_r025/metadata.json",
+      "object_poses": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0004_col_m440_v060_r025/object_poses.csv"
+    },
+    {
+      "scene_id": "scene_0005_col_m440_v060_r075",
+      "path": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0005_col_m440_v060_r075",
+      "scenario": "collision",
+      "mass_a_kg": 0.44,
+      "velocity_scale": 0.6,
+      "restitution": 0.75,
+      "config": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0005_col_m440_v060_r075/config.json",
+      "metadata": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0005_col_m440_v060_r075/metadata.json",
+      "object_poses": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0005_col_m440_v060_r075/object_poses.csv"
+    },
+    {
+      "scene_id": "scene_0006_col_m440_v140_r025",
+      "path": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0006_col_m440_v140_r025",
+      "scenario": "collision",
+      "mass_a_kg": 0.44,
+      "velocity_scale": 1.4,
+      "restitution": 0.25,
+      "config": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0006_col_m440_v140_r025/config.json",
+      "metadata": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0006_col_m440_v140_r025/metadata.json",
+      "object_poses": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0006_col_m440_v140_r025/object_poses.csv"
+    },
+    {
+      "scene_id": "scene_0007_col_m440_v140_r075",
+      "path": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0007_col_m440_v140_r075",
+      "scenario": "collision",
+      "mass_a_kg": 0.44,
+      "velocity_scale": 1.4,
+      "restitution": 0.75,
+      "config": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0007_col_m440_v140_r075/config.json",
+      "metadata": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0007_col_m440_v140_r075/metadata.json",
+      "object_poses": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0007_col_m440_v140_r075/object_poses.csv"
+    }
+  ]
+}

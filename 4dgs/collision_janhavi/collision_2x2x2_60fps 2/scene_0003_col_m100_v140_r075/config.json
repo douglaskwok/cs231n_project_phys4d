@@ -1,0 +1,173 @@
+{
+  "experiment": "collision_12view_room",
+  "description": "Generated 12-view room collision scene.",
+  "scene": {
+    "scenario": "collision",
+    "environment": {
+      "name": "room_with_floor_and_walls",
+      "floor_z_m": 0.0,
+      "half_extents_m": [
+        2.6,
+        2.6,
+        2.2
+      ],
+      "wall_thickness_m": 0.06,
+      "floor_thickness_m": 0.06,
+      "has_ceiling": false,
+      "anchor_markers": [
+        "back_blue",
+        "back_yellow",
+        "front_red",
+        "left_teal",
+        "right_green",
+        "floor_marker"
+      ],
+      "body_ids": {
+        "floor": 0,
+        "front_wall": 1,
+        "back_wall": 2,
+        "left_wall": 3,
+        "right_wall": 4,
+        "back_blue": 5,
+        "back_yellow": 6,
+        "front_red": 7,
+        "left_teal": 8,
+        "right_green": 9,
+        "floor_marker": 10
+      }
+    },
+    "objects": [
+      {
+        "name": "object_a",
+        "mask": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks_object_a"
+      },
+      {
+        "name": "object_b",
+        "mask": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks_object_b"
+      }
+    ],
+    "table": {
+      "name": "table",
+      "shape": "box",
+      "top_center_m": [
+        0.0,
+        0.0,
+        0.35
+      ],
+      "size_m": [
+        5.2,
+        5.2,
+        0.06
+      ]
+    },
+    "scenario_params": {
+      "scenario": "collision",
+      "object_half_extents_m": [
+        0.12,
+        0.12,
+        0.05
+      ],
+      "object_full_size_m": [
+        0.24,
+        0.24,
+        0.1
+      ],
+      "object_a_mass_kg": 0.1,
+      "object_b_mass_kg": 0.16,
+      "object_restitution": 0.75,
+      "object_lateral_friction": 0.02,
+      "velocity_scale": 1.4,
+      "object_a_initial_velocity_m_s": 1.3299999999999998,
+      "object_b_initial_velocity_m_s": 1.0499999999999998,
+      "table_top_z_m": 0.35
+    }
+  },
+  "simulation": {
+    "physics_engine": "pybullet",
+    "dt_s": 0.016666666666666666,
+    "internal_dt_s": 0.0020833333333333333,
+    "steps_per_frame": 8,
+    "num_frames": 157,
+    "duration_s": 2.6,
+    "gravity_m_s2": [
+      0.0,
+      0.0,
+      -9.80665
+    ],
+    "train_frames": [
+      0,
+      156
+    ],
+    "test_frames": [
+      0,
+      156
+    ],
+    "short_split_train_frames": [
+      0,
+      59
+    ],
+    "short_split_test_frames": [
+      60,
+      89
+    ]
+  },
+  "cameras": {
+    "num_cameras": 12,
+    "camera_names": [
+      "front",
+      "front_right",
+      "right",
+      "back_right",
+      "back",
+      "back_left",
+      "left",
+      "front_left",
+      "top",
+      "top_oblique",
+      "low_front_left",
+      "low_back_right"
+    ],
+    "layout": "12view_notebook_named_rig",
+    "train_cameras": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "test_cameras": [
+      10,
+      11
+    ],
+    "image_size": [
+      960,
+      544
+    ]
+  },
+  "outputs": {
+    "rgb_frames": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/rgb",
+    "masks": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks",
+    "table_masks": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks_table",
+    "object_table_masks": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks_object_table",
+    "object_masks": {
+      "object_a": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks_object_a",
+      "object_b": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/masks_object_b"
+    },
+    "rgb_videos": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/videos/rgb",
+    "mask_videos": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/videos/masks",
+    "table_mask_videos": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/videos/masks_table",
+    "object_table_mask_videos": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/videos/masks_object_table",
+    "object_mask_videos": {
+      "object_a": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/videos/masks_object_a",
+      "object_b": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/videos/masks_object_b"
+    },
+    "camera_poses": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/cameras.json",
+    "object_poses": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/object_poses.csv",
+    "metadata": "dataset/outputs/phys4d_final/collision_2x2x2_60fps/scene_0003_col_m100_v140_r075/metadata.json"
+  }
+}

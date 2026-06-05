@@ -63,6 +63,11 @@ def generate_collision_final(
     overwrite: bool,
     write_videos: bool,
     dry_run: bool,
+    geometry_scale: float,
+    wall_height_scale: float,
+    side_camera_extra_radius: float,
+    side_camera_extra_height: float,
+    velocity_scale: float,
 ) -> dict[str, Any]:
     scene_dir = output_dir / SCENE_ID
     scene = {
@@ -92,11 +97,19 @@ def generate_collision_final(
             "environment": "room",
             "object_count": 2,
             "object_kind": "rigid_box",
-            "object_full_size_m": [2.0 * value for value in COLLISION_OBJECT_HALF_EXTENTS_M],
+            "object_full_size_m": [
+                2.0 * value * geometry_scale
+                for value in COLLISION_OBJECT_HALF_EXTENTS_M
+            ],
+            "object_geometry_scale": geometry_scale,
+            "wall_height_scale": wall_height_scale,
+            "side_camera_extra_radius_m": side_camera_extra_radius,
+            "side_camera_extra_height_m": side_camera_extra_height,
             "object_a_mass_kg": 0.220,
             "object_b_mass_kg": 0.160,
-            "object_restitution": 0.80,
-            "object_lateral_friction": 0.02,
+            "object_restitution": 0.98,
+            "object_lateral_friction": 0.002,
+            "object_velocity_scale": velocity_scale,
             "table_top_z_m": COLLISION_TABLE_TOP_Z,
             "table_size_m": [TABLE_LENGTH, TABLE_WIDTH, TABLE_THICKNESS],
         },
@@ -118,6 +131,12 @@ def generate_collision_final(
         video_camera_names=video_camera_names,
         overwrite=overwrite,
         write_videos=write_videos,
+        collision_restitution=0.98,
+        collision_velocity_scale=velocity_scale,
+        collision_geometry_scale=geometry_scale,
+        collision_wall_height_scale=wall_height_scale,
+        side_camera_extra_radius=side_camera_extra_radius,
+        side_camera_extra_height=side_camera_extra_height,
     )
     _write_json(output_dir / "scenario_manifest.json", manifest)
     return manifest
@@ -139,6 +158,36 @@ def main() -> int:
     parser.add_argument("--no-overwrite", action="store_true")
     parser.add_argument("--no-videos", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--geometry-scale",
+        type=float,
+        default=1.0,
+        help="Scale collision object sizes, wall sizes, and object start offsets. Cameras stay fixed.",
+    )
+    parser.add_argument(
+        "--wall-height-scale",
+        type=float,
+        default=1.0,
+        help="Scale collision rail height separately. Use with --geometry-scale to avoid rail occlusion.",
+    )
+    parser.add_argument(
+        "--side-camera-extra-radius",
+        type=float,
+        default=0.0,
+        help="Move left/right ring cameras outward by this many meters.",
+    )
+    parser.add_argument(
+        "--side-camera-extra-height",
+        type=float,
+        default=0.0,
+        help="Move left/right ring cameras upward by this many meters.",
+    )
+    parser.add_argument(
+        "--velocity-scale",
+        type=float,
+        default=1.0,
+        help="Scale the initial collision object velocities.",
+    )
     args = parser.parse_args()
 
     if args.video_fps <= 0:
@@ -149,6 +198,12 @@ def main() -> int:
         raise ValueError("--duration-sec must be positive.")
     if args.max_frames is not None and args.max_frames <= 0:
         raise ValueError("--max-frames must be positive.")
+    if args.geometry_scale <= 0:
+        raise ValueError("--geometry-scale must be positive.")
+    if args.wall_height_scale <= 0:
+        raise ValueError("--wall-height-scale must be positive.")
+    if args.velocity_scale <= 0:
+        raise ValueError("--velocity-scale must be positive.")
 
     manifest = generate_collision_final(
         output_dir=args.output_dir.resolve(),
@@ -161,6 +216,11 @@ def main() -> int:
         overwrite=not args.no_overwrite,
         write_videos=not args.no_videos,
         dry_run=args.dry_run,
+        geometry_scale=args.geometry_scale,
+        wall_height_scale=args.wall_height_scale,
+        side_camera_extra_radius=args.side_camera_extra_radius,
+        side_camera_extra_height=args.side_camera_extra_height,
+        velocity_scale=args.velocity_scale,
     )
     print(json.dumps(manifest, indent=2))
     if not args.dry_run:

@@ -52,6 +52,7 @@ from dataset.export_ping_pong_12view import (  # noqa: E402
 
 DEFAULT_OUTPUT_DIR = DATASET_OUTPUTS_ROOT / "room_physics_12view"
 BODY_UNIQUE_ID_MASK = (1 << 24) - 1
+ROOM_PHYSICS_CAMERA_TARGET = [0.0, 0.0, 0.60]
 
 SCENARIO_DEFAULTS = {
     "collision": {"duration_sec": 2.6, "sim_hz": 480.0},
@@ -59,8 +60,12 @@ SCENARIO_DEFAULTS = {
     "deformable": {"duration_sec": 2.6, "sim_hz": 480.0},
 }
 
-COLLISION_TABLE_TOP_Z = 0.35
-COLLISION_OBJECT_HALF_EXTENTS_M = [0.120, 0.120, 0.050]
+COLLISION_TABLE_TOP_Z = 0.25
+COLLISION_OBJECT_HALF_EXTENTS_M = [0.120, 0.120, 0.075]
+COLLISION_WALL_HALF_X = 0.60
+COLLISION_WALL_HALF_Y = 0.20
+COLLISION_WALL_HALF_THICKNESS = 0.015
+COLLISION_WALL_HALF_HEIGHT = 0.035
 STACKING_NUM_BLOCKS = 3
 STACKING_BLOCK_SIZE_M = [0.120, 0.120, 0.070]
 STACKING_BLOCK_MASS_KG = 0.180
@@ -76,19 +81,28 @@ class BodyInfo:
     active: bool = True
 
 
-def _default_camera_rows() -> list[dict]:
+def _default_camera_rows(
+    *,
+    side_camera_extra_radius: float = 0.0,
+    side_camera_extra_height: float = 0.0,
+) -> list[dict]:
     """Copy of the room 12-view rig, with a slightly roomier FOV for blocks."""
 
     rows = []
     ring_radius = 1.75
     for i, name in enumerate(CAMERA_NAMES[:8]):
         angle = -math.pi / 2.0 + i * (2.0 * math.pi / 8.0)
+        radius = ring_radius
+        eye_z = 1.15
+        if name in {"right", "left"}:
+            radius += side_camera_extra_radius
+            eye_z += side_camera_extra_height
         rows.append(
             {
                 "name": name,
-                "eye_x": str(ring_radius * math.cos(angle)),
-                "eye_y": str(ring_radius * math.sin(angle)),
-                "eye_z": "1.15",
+                "eye_x": str(radius * math.cos(angle)),
+                "eye_y": str(radius * math.sin(angle)),
+                "eye_z": str(eye_z),
                 "up_x": "0",
                 "up_y": "0",
                 "up_z": "1",
@@ -269,6 +283,7 @@ def _add_collision_object(
     position: list[float],
     velocity: list[float],
     rgba_color: list[float],
+    restitution: float = 0.80,
 ) -> BodyInfo:
     col = p.createCollisionShape(p.GEOM_BOX, halfExtents=half_extents, physicsClientId=client)
     vis = p.createVisualShape(
@@ -287,10 +302,10 @@ def _add_collision_object(
     p.changeDynamics(
         body,
         -1,
-        lateralFriction=0.02,
-        restitution=0.80,
-        rollingFriction=0.001,
-        spinningFriction=0.001,
+        lateralFriction=0.002,
+        restitution=restitution,
+        rollingFriction=0.0,
+        spinningFriction=0.0,
         contactProcessingThreshold=0.0,
         physicsClientId=client,
     )
@@ -298,26 +313,93 @@ def _add_collision_object(
     return BodyInfo(name=name, body_id=body, mass_kg=mass_kg, kind="rigid_box")
 
 
-def _setup_collision_scene(p, client: int) -> tuple[int, list[BodyInfo], list[str], dict]:
+def _add_collision_walls(
+    p,
+    client: int,
+    *,
+    table_top_z: float,
+    restitution: float = 0.80,
+    scale: float = 1.0,
+    height_scale: float = 1.0,
+) -> None:
+    ht = COLLISION_WALL_HALF_THICKNESS * scale
+    hh = COLLISION_WALL_HALF_HEIGHT * height_scale
+    hx = COLLISION_WALL_HALF_X * scale
+    hy = COLLISION_WALL_HALF_Y * scale
+    z = table_top_z + hh
+    rgba = [0.65, 0.58, 0.45, 0.28]
+    wall_specs = [
+        ([ht, hy + ht, hh], [-hx, 0.0, z]),
+        ([ht, hy + ht, hh], [hx, 0.0, z]),
+        ([hx - ht, ht, hh], [0.0, -hy, z]),
+        ([hx - ht, ht, hh], [0.0, hy, z]),
+    ]
+    for half_extents, pos in wall_specs:
+        col = p.createCollisionShape(p.GEOM_BOX, halfExtents=half_extents, physicsClientId=client)
+        vis = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=half_extents,
+            rgbaColor=rgba,
+            physicsClientId=client,
+        )
+        body = p.createMultiBody(0.0, col, vis, pos, physicsClientId=client)
+        p.changeDynamics(
+            body,
+            -1,
+            restitution=restitution,
+            lateralFriction=0.002,
+            contactProcessingThreshold=0.0,
+            physicsClientId=client,
+        )
+
+
+def _setup_collision_scene(
+    p,
+    client: int,
+    *,
+    mass_a_kg: float = 0.220,
+    velocity_scale: float = 1.0,
+    velocity_split: float | None = None,
+    restitution: float = 0.80,
+    geometry_scale: float = 1.0,
+    wall_height_scale: float = 1.0,
+) -> tuple[int, list[BodyInfo], list[str], dict]:
     table_top_z = COLLISION_TABLE_TOP_Z
     table_id = _create_table(
         p,
         client,
-        restitution=0.10,
-        lateral_friction=0.02,
+        restitution=0.0,
+        lateral_friction=0.002,
         table_top_z=table_top_z,
     )
-    half = COLLISION_OBJECT_HALF_EXTENTS_M
+    _add_collision_walls(
+        p,
+        client,
+        table_top_z=table_top_z,
+        restitution=restitution,
+        scale=geometry_scale,
+        height_scale=wall_height_scale,
+    )
+    half = [v * geometry_scale for v in COLLISION_OBJECT_HALF_EXTENTS_M]
+    start_x = 0.30 * geometry_scale
+    if velocity_split is None:
+        vel_a = 0.70 * velocity_scale
+        vel_b = 0.55 * velocity_scale
+    else:
+        closing_speed = (0.70 + 0.55) * velocity_scale
+        vel_a = closing_speed * velocity_split
+        vel_b = closing_speed * (1.0 - velocity_split)
     objects = [
         _add_collision_object(
             p,
             client,
             name="object_a",
-            mass_kg=0.220,
+            mass_kg=mass_a_kg,
             half_extents=half,
-            position=[-0.38, 0.0, table_top_z + half[2]],
-            velocity=[0.95, 0.0, 0.0],
+            position=[-start_x, 0.0, table_top_z + half[2]],
+            velocity=[vel_a, 0.0, 0.0],
             rgba_color=[0.90, 0.20, 0.16, 1.0],
+            restitution=restitution,
         ),
         _add_collision_object(
             p,
@@ -325,20 +407,33 @@ def _setup_collision_scene(p, client: int) -> tuple[int, list[BodyInfo], list[st
             name="object_b",
             mass_kg=0.160,
             half_extents=half,
-            position=[0.38, 0.0, table_top_z + half[2]],
-            velocity=[-0.75, 0.0, 0.0],
+            position=[start_x, 0.0, table_top_z + half[2]],
+            velocity=[-vel_b, 0.0, 0.0],
             rgba_color=[0.12, 0.50, 0.92, 1.0],
+            restitution=restitution,
         ),
     ]
     meta = {
         "scenario": "collision",
         "object_half_extents_m": half,
         "object_full_size_m": [2.0 * v for v in half],
-        "object_a_mass_kg": 0.220,
+        "object_a_mass_kg": mass_a_kg,
         "object_b_mass_kg": 0.160,
-        "object_restitution": 0.80,
+        "object_restitution": restitution,
         "object_lateral_friction": 0.02,
+        "geometry_scale": geometry_scale,
+        "wall_height_scale": wall_height_scale,
+        "velocity_scale": velocity_scale,
+        "velocity_split": velocity_split,
+        "object_closing_speed_m_s": vel_a + vel_b,
+        "object_a_initial_velocity_m_s": vel_a,
+        "object_b_initial_velocity_m_s": vel_b,
         "table_top_z_m": table_top_z,
+        "walled": True,
+        "wall_half_x_m": COLLISION_WALL_HALF_X * geometry_scale,
+        "wall_half_y_m": COLLISION_WALL_HALF_Y * geometry_scale,
+        "wall_half_height_m": COLLISION_WALL_HALF_HEIGHT * wall_height_scale,
+        "wall_half_thickness_m": COLLISION_WALL_HALF_THICKNESS * geometry_scale,
     }
     return table_id, objects, [obj.name for obj in objects], meta
 
@@ -607,9 +702,25 @@ def _scenario_setup(
     p,
     client: int,
     scenario: str,
+    *,
+    collision_mass_a_kg: float = 0.220,
+    collision_velocity_scale: float = 1.0,
+    collision_velocity_split: float | None = None,
+    collision_restitution: float = 0.80,
+    collision_geometry_scale: float = 1.0,
+    collision_wall_height_scale: float = 1.0,
 ) -> tuple[int, list[BodyInfo], list[str], dict]:
     if scenario == "collision":
-        return _setup_collision_scene(p, client)
+        return _setup_collision_scene(
+            p,
+            client,
+            mass_a_kg=collision_mass_a_kg,
+            velocity_scale=collision_velocity_scale,
+            velocity_split=collision_velocity_split,
+            restitution=collision_restitution,
+            geometry_scale=collision_geometry_scale,
+            wall_height_scale=collision_wall_height_scale,
+        )
     if scenario == "stacking":
         return _setup_stacking_scene(p, client)
     if scenario == "deformable":
@@ -629,6 +740,14 @@ def simulate_scenario(
     video_camera_names: set[str] | None,
     overwrite: bool,
     write_videos: bool,
+    collision_mass_a_kg: float = 0.220,
+    collision_velocity_scale: float = 1.0,
+    collision_velocity_split: float | None = None,
+    collision_restitution: float = 0.80,
+    collision_geometry_scale: float = 1.0,
+    collision_wall_height_scale: float = 1.0,
+    side_camera_extra_radius: float = 0.0,
+    side_camera_extra_height: float = 0.0,
 ) -> dict:
     import imageio.v2 as imageio
 
@@ -640,14 +759,27 @@ def simulate_scenario(
     )
     steps_per_frame = _steps_per_frame(video_fps, sim_hz)
     environment_info = _create_room_geometry(p, client)
-    table_id, bodies, expected_names, scenario_meta = _scenario_setup(p, client, scenario)
+    table_id, bodies, expected_names, scenario_meta = _scenario_setup(
+        p,
+        client,
+        scenario,
+        collision_mass_a_kg=collision_mass_a_kg,
+        collision_velocity_scale=collision_velocity_scale,
+        collision_velocity_split=collision_velocity_split,
+        collision_restitution=collision_restitution,
+        collision_geometry_scale=collision_geometry_scale,
+        collision_wall_height_scale=collision_wall_height_scale,
+    )
 
-    camera_rows = _default_camera_rows()
+    camera_rows = _default_camera_rows(
+        side_camera_extra_radius=side_camera_extra_radius,
+        side_camera_extra_height=side_camera_extra_height,
+    )
     if render_camera_names is not None:
         camera_rows = [row for row in camera_rows if row["name"] in render_camera_names]
         if not camera_rows:
             raise ValueError(f"No cameras selected from: {sorted(render_camera_names)}")
-    camera_records = _camera_records(camera_rows)
+    camera_records = _camera_records(camera_rows, camera_target=ROOM_PHYSICS_CAMERA_TARGET)
     camera_names = [str(cam["name"]) for cam in camera_records]
     camera_layout = (
         "12view_notebook_named_rig"
@@ -833,6 +965,7 @@ def simulate_scenario(
     _write_pose_rows(pose_rows, scene_dir / "object_poses.csv")
 
     table_top_z = float(scenario_meta.get("table_top_z_m", TABLE_TOP_Z))
+    object_size_m = scenario_meta.get("object_full_size_m")
     config = {
         "experiment": f"{scenario}_12view_room",
         "description": f"Generated 12-view room {scenario} scene.",
@@ -841,6 +974,12 @@ def simulate_scenario(
             "environment": environment_info,
             "objects": [
                 {
+                    **(
+                        {"shape": "box", "size_m": object_size_m}
+                        if object_size_m is not None
+                        and scenario in {"collision", "stacking"}
+                        else {}
+                    ),
                     "name": name,
                     "mask": _repo_path(object_roots[name]),
                 }
