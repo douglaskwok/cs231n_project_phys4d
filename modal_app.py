@@ -496,8 +496,16 @@ def _patch_wu4dgs_foreground_loss(
     cloud_isotropy_weight: float = 0.0,
     silhouette_roundness_weight: float = 0.0,
     trajectory_anchor_weight: float = 0.0,
+    camera_loss_weights: str = "",
 ) -> None:
     """Optionally focus Wu's loss on masked foreground pixels and compact objects."""
+    camera_weight_pairs: list[tuple[int, float]] = []
+    if camera_loss_weights.strip():
+        for item in camera_loss_weights.replace("\\", "").split(","):
+            if not item.strip():
+                continue
+            cam_s, weight_s = item.split(":", 1)
+            camera_weight_pairs.append((int(cam_s), float(weight_s)))
     if (
         weight <= 0
         and mask_weight <= 0
@@ -509,6 +517,7 @@ def _patch_wu4dgs_foreground_loss(
         and cloud_isotropy_weight <= 0
         and silhouette_roundness_weight <= 0
         and trajectory_anchor_weight <= 0
+        and not camera_weight_pairs
     ):
         return
     needs_alpha_render = mask_weight > 0 or area_weight > 0 or silhouette_roundness_weight > 0
@@ -600,6 +609,28 @@ def _patch_wu4dgs_foreground_loss(
             text = text.replace(old, new)
 
     old = "        Ll1 = l1_loss(image_tensor, gt_image_tensor[:,:3,:,:])\n"
+    camera_weight_map = "{" + ", ".join(f"{cam}: {cam_weight}" for cam, cam_weight in camera_weight_pairs) + "}"
+    camera_weight_setup = ""
+    if camera_weight_pairs:
+        camera_weight_setup = f"""        sample_loss_weights = torch.ones((gt_image_tensor.shape[0], 1, 1, 1), device=gt_image_tensor.device)
+        camera_loss_weight_map = {camera_weight_map}
+        for camera_weight_i, camera_weight_cam in enumerate(viewpoint_cams):
+            camera_weight_name = str(getattr(camera_weight_cam, "image_name", ""))
+            camera_weight_id = None
+            if camera_weight_name.startswith("cam"):
+                camera_weight_digits = []
+                for camera_weight_ch in camera_weight_name[3:]:
+                    if camera_weight_ch.isdigit():
+                        camera_weight_digits.append(camera_weight_ch)
+                    else:
+                        break
+                if camera_weight_digits:
+                    camera_weight_id = int("".join(camera_weight_digits))
+            if camera_weight_id in camera_loss_weight_map:
+                sample_loss_weights[camera_weight_i] = float(camera_loss_weight_map[camera_weight_id])
+"""
+    else:
+        camera_weight_setup = "        sample_loss_weights = torch.ones((gt_image_tensor.shape[0], 1, 1, 1), device=gt_image_tensor.device)\n"
     compactness_term = ""
     if compactness_weight > 0:
         compactness_term = f"""        xyz_compact = gaussians.get_xyz
@@ -679,44 +710,50 @@ def _patch_wu4dgs_foreground_loss(
     if area_weight > 0:
         area_term = f"""        pred_area = alpha_clamped.sum(dim=(2, 3)).clamp_min(1.0)
         gt_area = fg_mask.sum(dim=(2, 3)).clamp_min(1.0)
-        visible_area = (gt_area.flatten() > 4.0).float()
+        visible_area = (gt_area.flatten() > 4.0).float() * sample_loss_weights.flatten()
         rel_area_error = (torch.log(pred_area) - torch.log(gt_area)).pow(2).flatten()
         Ll1 = Ll1 + {float(area_weight)} * (rel_area_error * visible_area).sum() / visible_area.sum().clamp_min(1.0)
 """
 
     normalized_region_loss = f"""        gt_rgb_tensor = gt_image_tensor[:,:3,:,:]
+{camera_weight_setup.rstrip()}
         fg_mask = (gt_rgb_tensor > (2.0 / 255.0)).any(dim=1, keepdim=True).float()
         bg_mask = 1.0 - fg_mask
         abs_rgb = torch.abs(image_tensor - gt_rgb_tensor)
-        fg_count = (fg_mask.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
-        bg_count = (bg_mask.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
-        fg_l1 = (abs_rgb * fg_mask).sum() / fg_count
-        bg_l1 = (abs_rgb * bg_mask).sum() / bg_count
+        fg_mask_weighted = fg_mask * sample_loss_weights
+        bg_mask_weighted = bg_mask * sample_loss_weights
+        fg_count = (fg_mask_weighted.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
+        bg_count = (bg_mask_weighted.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
+        fg_l1 = (abs_rgb * fg_mask_weighted).sum() / fg_count
+        bg_l1 = (abs_rgb * bg_mask_weighted).sum() / bg_count
         Ll1 = bg_l1 + {float(weight)} * fg_l1
 """
     bg_spill_term = ""
     if bg_spill_weight > 0:
-        bg_spill_term = f"""        bg_rgb_spill_loss = (abs_rgb * bg_mask).sum() / fg_count
+        bg_spill_term = f"""        bg_rgb_spill_loss = (abs_rgb * bg_mask_weighted).sum() / fg_count
         Ll1 = Ll1 + {float(bg_spill_weight)} * bg_rgb_spill_loss
 """
 
     mask_term = ""
     if mask_weight > 0:
-        mask_term = f"""        fg_alpha_norm = fg_mask.sum().clamp_min(1.0)
-        fg_alpha_loss = (torch.abs(alpha_clamped - fg_mask) * fg_mask).sum() / fg_alpha_norm
-        bg_alpha_loss = (torch.abs(alpha_clamped - fg_mask) * bg_mask).sum() / fg_alpha_norm
+        mask_term = f"""        fg_alpha_norm = fg_mask_weighted.sum().clamp_min(1.0)
+        fg_alpha_loss = (torch.abs(alpha_clamped - fg_mask) * fg_mask_weighted).sum() / fg_alpha_norm
+        bg_alpha_loss = (torch.abs(alpha_clamped - fg_mask) * bg_mask_weighted).sum() / fg_alpha_norm
         Ll1 = Ll1 + {float(mask_weight)} * (fg_alpha_loss + bg_alpha_loss)
 """
 
     if needs_alpha_render:
         new = f"""        gt_rgb_tensor = gt_image_tensor[:,:3,:,:]
+{camera_weight_setup.rstrip()}
         fg_mask = (gt_rgb_tensor > (2.0 / 255.0)).any(dim=1, keepdim=True).float()
         bg_mask = 1.0 - fg_mask
         abs_rgb = torch.abs(image_tensor - gt_rgb_tensor)
-        fg_count = (fg_mask.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
-        bg_count = (bg_mask.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
-        fg_l1 = (abs_rgb * fg_mask).sum() / fg_count
-        bg_l1 = (abs_rgb * bg_mask).sum() / bg_count
+        fg_mask_weighted = fg_mask * sample_loss_weights
+        bg_mask_weighted = bg_mask * sample_loss_weights
+        fg_count = (fg_mask_weighted.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
+        bg_count = (bg_mask_weighted.sum() * gt_rgb_tensor.shape[1]).clamp_min(1.0)
+        fg_l1 = (abs_rgb * fg_mask_weighted).sum() / fg_count
+        bg_l1 = (abs_rgb * bg_mask_weighted).sum() / bg_count
         Ll1 = bg_l1 + {float(weight)} * fg_l1
         alpha_clamped = torch.clamp(alpha_tensor, 0.0, 1.0)
 {mask_term.rstrip()}
@@ -752,7 +789,8 @@ def _patch_wu4dgs_foreground_loss(
         f"max_scale_weight={max_scale_weight} max_scale_value={max_scale_value} "
         f"cloud_isotropy_weight={cloud_isotropy_weight} "
         f"silhouette_roundness_weight={silhouette_roundness_weight} "
-        f"trajectory_anchor_weight={trajectory_anchor_weight}",
+        f"trajectory_anchor_weight={trajectory_anchor_weight} "
+        f"camera_loss_weights={camera_loss_weights}",
         flush=True,
     )
 
@@ -781,6 +819,7 @@ def train_wu_4dgs(
     cloud_isotropy_loss_weight: float = 0.0,
     silhouette_roundness_loss_weight: float = 0.0,
     trajectory_anchor_loss_weight: float = 0.0,
+    camera_loss_weights: str = "",
     densify_until_iter: int = 0,
     opacity_reset_interval: int = 0,
     start_checkpoint: str = "",
@@ -851,6 +890,7 @@ def train_wu_4dgs(
         cloud_isotropy_loss_weight,
         silhouette_roundness_loss_weight,
         trajectory_anchor_loss_weight,
+        camera_loss_weights,
     )
     print("Wu 4DGS import probe...", flush=True)
     subprocess.run(
@@ -2021,6 +2061,7 @@ def main(
     wu_cloud_isotropy_loss_weight: float = 0.0,
     wu_silhouette_roundness_loss_weight: float = 0.0,
     wu_trajectory_anchor_loss_weight: float = 0.0,
+    wu_camera_loss_weights: str = "",
     wu_densify_until_iter: int = 0,
     wu_opacity_reset_interval: int = 0,
     wu_start_checkpoint: str = "",
@@ -2173,6 +2214,7 @@ def main(
                 cloud_isotropy_loss_weight=wu_cloud_isotropy_loss_weight,
                 silhouette_roundness_loss_weight=wu_silhouette_roundness_loss_weight,
                 trajectory_anchor_loss_weight=wu_trajectory_anchor_loss_weight,
+                camera_loss_weights=wu_camera_loss_weights,
                 densify_until_iter=wu_densify_until_iter,
                 opacity_reset_interval=wu_opacity_reset_interval,
                 start_checkpoint=wu_start_checkpoint,

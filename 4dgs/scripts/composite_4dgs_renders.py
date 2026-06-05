@@ -17,6 +17,7 @@ import imageio.v2 as imageio
 import numpy as np
 
 PNG_RE = re.compile(r"^\d+_cam(\d+)_(\d+)\.png$")
+SEQUENTIAL_PNG_RE = re.compile(r"^(\d+)\.png$")
 
 
 def _read_rgb(path: Path) -> np.ndarray:
@@ -34,6 +35,12 @@ def _composite_images(images: list[np.ndarray], threshold: int, mode: str) -> np
     if not images:
         raise ValueError("No images to composite.")
     out = np.zeros_like(images[0])
+    if mode == "thresholded_max":
+        for img in images:
+            masked = img.copy()
+            masked[~_foreground_mask(masked, threshold)] = 0
+            out = np.maximum(out, masked)
+        return out
     if mode == "max":
         for img in images:
             out = np.maximum(out, img)
@@ -51,6 +58,11 @@ def _render_index(render_dir: Path) -> dict[tuple[int, int], Path]:
     for path in sorted(render_dir.glob("*.png")):
         match = PNG_RE.match(path.name)
         if not match:
+            seq_match = SEQUENTIAL_PNG_RE.match(path.name)
+            if not seq_match:
+                continue
+            seq = int(seq_match.group(1))
+            out[(0, seq)] = path
             continue
         cam, frame = map(int, match.groups())
         out[(cam, frame)] = path
@@ -113,7 +125,10 @@ def composite_render_dirs(
                 missing_by_input[str(render_dir)] += 1
                 images.append(_black_like(reference))
         cam, frame = key
-        name = f"{out_seq:06d}_cam{cam:02d}_{frame:05d}.png"
+        if all(SEQUENTIAL_PNG_RE.match(idx[key].name) for idx in indexes if key in idx):
+            name = f"{frame:05d}.png"
+        else:
+            name = f"{out_seq:06d}_cam{cam:02d}_{frame:05d}.png"
         imageio.imwrite(out_dir / name, _composite_images(images, threshold, mode))
 
     meta = {
@@ -135,9 +150,12 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument(
         "--mode",
-        choices=("max", "over"),
+        choices=("max", "over", "thresholded_max"),
         default="max",
-        help="max preserves colored objects on black; over draws later dirs over earlier dirs.",
+        help=(
+            "max preserves colored objects on black; over draws later dirs over earlier dirs; "
+            "thresholded_max zeros sub-threshold pixels before max compositing."
+        ),
     )
     parser.add_argument(
         "--frame-policy",

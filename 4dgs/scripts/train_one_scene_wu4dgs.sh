@@ -35,6 +35,7 @@ MAX_GAUSSIAN_SCALE="0.02"
 CLOUD_ISOTROPY_LOSS_WEIGHT="0"
 SILHOUETTE_ROUNDNESS_LOSS_WEIGHT="0"
 TRAJECTORY_ANCHOR_LOSS_WEIGHT="0"
+CAMERA_LOSS_WEIGHTS=""
 WU_DENSIFY_UNTIL_ITER="0"
 WU_OPACITY_RESET_INTERVAL="0"
 WU_FORCE_AABB=""
@@ -116,6 +117,10 @@ Options:
                           in the DyNeRF export. Useful for independently fit
                           objects that must later compose in one scene.
                           Default: 0.
+  --camera-loss-weights CSV
+                          Per-camera training loss multipliers, e.g. 6:3,10:4.
+                          Useful when a fitted object disappears from weak
+                          but valid cameras. Default: none.
   --wu-densify-until-iter N
                           Override Wu densify_until_iter. Default: repo config.
   --wu-opacity-reset-interval N
@@ -247,6 +252,10 @@ while [[ $# -gt 0 ]]; do
       TRAJECTORY_ANCHOR_LOSS_WEIGHT="$2"
       shift 2
       ;;
+    --camera-loss-weights)
+      CAMERA_LOSS_WEIGHTS="$2"
+      shift 2
+      ;;
     --wu-densify-until-iter)
       WU_DENSIFY_UNTIL_ITER="$2"
       shift 2
@@ -376,7 +385,7 @@ echo "Wu scene rel: $WU_SCENE_REL"
 echo "Model rel:    $MODEL_REL"
 echo "Download:     $DOWNLOAD_DIR"
 echo "Iterations:   coarse=$COARSE_ITERATIONS fine=$ITERATIONS"
-echo "Loss:         foreground_weight=$FOREGROUND_LOSS_WEIGHT mask_weight=$MASK_LOSS_WEIGHT bg_spill_weight=$BG_SPILL_LOSS_WEIGHT area_weight=$AREA_LOSS_WEIGHT compactness_weight=$COMPACTNESS_LOSS_WEIGHT scale_isotropy_weight=$SCALE_ISOTROPY_LOSS_WEIGHT max_scale_weight=$MAX_SCALE_LOSS_WEIGHT max_gaussian_scale=$MAX_GAUSSIAN_SCALE cloud_isotropy_weight=$CLOUD_ISOTROPY_LOSS_WEIGHT silhouette_roundness_weight=$SILHOUETTE_ROUNDNESS_LOSS_WEIGHT trajectory_anchor_weight=$TRAJECTORY_ANCHOR_LOSS_WEIGHT"
+echo "Loss:         foreground_weight=$FOREGROUND_LOSS_WEIGHT mask_weight=$MASK_LOSS_WEIGHT bg_spill_weight=$BG_SPILL_LOSS_WEIGHT area_weight=$AREA_LOSS_WEIGHT compactness_weight=$COMPACTNESS_LOSS_WEIGHT scale_isotropy_weight=$SCALE_ISOTROPY_LOSS_WEIGHT max_scale_weight=$MAX_SCALE_LOSS_WEIGHT max_gaussian_scale=$MAX_GAUSSIAN_SCALE cloud_isotropy_weight=$CLOUD_ISOTROPY_LOSS_WEIGHT silhouette_roundness_weight=$SILHOUETTE_ROUNDNESS_LOSS_WEIGHT trajectory_anchor_weight=$TRAJECTORY_ANCHOR_LOSS_WEIGHT camera_loss_weights=${CAMERA_LOSS_WEIGHTS:-none}"
 echo "Wu opts:      densify_until=$WU_DENSIFY_UNTIL_ITER opacity_reset_interval=$WU_OPACITY_RESET_INTERVAL"
 echo "Wu AABB:      ${WU_FORCE_AABB:-auto from fused.ply}"
 echo "Resume:       wu_start_checkpoint=${WU_START_CHECKPOINT:-none}"
@@ -435,6 +444,7 @@ if [[ "$SKIP_TRAIN" != "1" ]]; then
     --wu-cloud-isotropy-loss-weight "$CLOUD_ISOTROPY_LOSS_WEIGHT" \
     --wu-silhouette-roundness-loss-weight "$SILHOUETTE_ROUNDNESS_LOSS_WEIGHT" \
     --wu-trajectory-anchor-loss-weight "$TRAJECTORY_ANCHOR_LOSS_WEIGHT" \
+    $(if [[ -n "${CAMERA_LOSS_WEIGHTS:-}" ]]; then printf '%s %s' "--wu-camera-loss-weights" "${CAMERA_LOSS_WEIGHTS:-}"; fi) \
     --wu-densify-until-iter "$WU_DENSIFY_UNTIL_ITER" \
     --wu-opacity-reset-interval "$WU_OPACITY_RESET_INTERVAL" \
     $(if [[ -n "$WU_FORCE_AABB" ]]; then printf '%s %s' "--wu-force-aabb" "$WU_FORCE_AABB"; fi) \
