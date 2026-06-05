@@ -43,21 +43,21 @@ cp -R "$RUN/_step4a_stage/scene" "$RUN/_step5_stage/"
 cp "$RUN/step4a/trajectory_smoothed.csv" "$RUN/_step5_stage/step4a/"
 cp "$RUN/step4c/trajectory_predicted.csv" "$RUN/_step5_stage/step4c/"
 modal run modal_app.py --upload-step5 --step5-dir "$RUN/_step5_stage"
+modal volume rm phys4d-gs-output step5 -r 2>/dev/null || true
 modal run modal_app.py --step5 \
-  --bounce-out-rel "$MBASE/step5" \
   --canonical-rel object/point_cloud.ply \
   --cfg-args-rel object/cfg_args \
   --bounce-bg-ply-rel bg_wu_huge_3dgs/point_cloud/iteration_7000/point_cloud.ply \
   --object-scale "$SCALE" \
-  --object-crop-radius "$CROP"
+  --object-crop-radius "$CROP" \
+  --object-opacity-boost 4.0 \
+  --composite-mode alpha
 
 echo "=== download step5 ==="
-mkdir -p "$RUN/step5/renders"
-modal volume get phys4d-gs-output "$MBASE/step5/step5_meta.json" "$RUN/step5/step5_meta.json" --force
-modal volume ls phys4d-gs-output "$MBASE/step5/renders" 2>/dev/null | while IFS= read -r rel; do
-  base="${rel##*/}"
-  [[ -n "$base" ]] && modal volume get phys4d-gs-output "$MBASE/step5/renders/$base" "$RUN/step5/renders/$base" --force
-done
+rm -rf "$RUN/step5"
+mkdir -p "$RUN/step5"
+modal volume get phys4d-gs-output step5/step5_meta.json "$RUN/step5/step5_meta.json" --force
+( cd "$RUN/step5" && modal volume get phys4d-gs-output step5/renders --force )
 
 echo "=== step6 + mp4 ==="
 MPLCONFIGDIR=/tmp/mpl "$PY" scripts/bounce/step6_eval.py \

@@ -29,7 +29,12 @@ from phys4d.bounce.load_4dgs import default_wu_root, load_cfg_args
 from phys4d.bounce.load_4dgs import _ensure_wu_on_path
 from phys4d.bounce.physics import load_trajectory_csv
 from phys4d.bounce.render_compose import (
+    _WuCloudSession,
+    _boost_opacity,
     _build_minicam_from_frame,
+    _composite_layers_alpha,
+    _composite_layers_depth,
+    _composite_layers_threshold,
     _load_vertices_into_wu_model,
     _parse_cam_frame,
     _read_predicted_csv,
@@ -60,58 +65,6 @@ class _ObjectAsset:
     p_ref: np.ndarray
     predicted: dict[int, np.ndarray]
     scaled: bool
-
-
-class _WuCloudSession:
-    """GPU session for a single Gaussian cloud (background or one object)."""
-
-    def __init__(
-        self,
-        *,
-        cfg_args_path: Path,
-        vertices: np.ndarray,
-        wu_root: Path | None,
-        white_background: bool,
-    ) -> None:
-        wu = Path(wu_root or default_wu_root())
-        _ensure_wu_on_path(wu)
-
-        import torch
-        from argparse import Namespace
-        from gaussian_renderer import render as wu_render
-        from scene.gaussian_model import GaussianModel
-
-        self._torch = torch
-        self._wu_render = wu_render
-        self._canonical_xyz = gaussian_xyz(vertices).astype(np.float32)
-
-        args = load_cfg_args(cfg_args_path)
-        self._gaussians = GaussianModel(3, args)
-        _load_vertices_into_wu_model(self._gaussians, vertices)
-
-        self._pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False, debug=False)
-        self._bg = torch.tensor(
-            [1.0, 1.0, 1.0] if white_background else [0.0, 0.0, 0.0],
-            dtype=torch.float32,
-            device="cuda",
-        )
-
-    def set_delta(self, delta: np.ndarray) -> None:
-        delta = np.asarray(delta, dtype=np.float32).reshape(3)
-        new_xyz = self._canonical_xyz + delta[None, :]
-        self._gaussians._xyz.data[:] = self._torch.from_numpy(new_xyz).cuda()
-
-    def render(self, camera_frame: dict) -> tuple[np.ndarray, np.ndarray]:
-        cam = _build_minicam_from_frame(camera_frame)
-        with self._torch.no_grad():
-            pkg = self._wu_render(
-                cam, self._gaussians, self._pipe, self._bg, stage="coarse", cam_type=None
-            )
-            rgb = pkg["render"].clamp(0.0, 1.0).detach().cpu().numpy()
-            depth = pkg["depth"].detach().cpu().numpy()
-        rgb_u8 = (rgb.transpose(1, 2, 0) * 255.0).astype(np.uint8)
-        depth_map = np.transpose(depth, (1, 2, 0)) if depth.ndim == 3 else depth
-        return rgb_u8, depth_map
 
 
 class _MultiCompositeSession:
@@ -169,115 +122,6 @@ class _MultiCompositeSession:
             )
             rgb = pkg["render"].clamp(0.0, 1.0).detach().cpu().numpy()
         return (rgb.transpose(1, 2, 0) * 255.0).astype(np.uint8)
-
-
-def _depth_scalar(depth: np.ndarray) -> np.ndarray:
-    """Reduce a Wu depth buffer to a single ``(H, W)`` plane."""
-
-    arr = np.asarray(depth, dtype=np.float64)
-    if arr.ndim == 3:
-        arr = arr[..., 0] if arr.shape[-1] == 1 else arr.mean(axis=-1)
-    return arr
-
-
-def _composite_layers_threshold(
-    background_rgb: np.ndarray,
-    object_rgbs: list[np.ndarray],
-    *,
-    threshold: int,
-) -> np.ndarray:
-    """Hard-mask object layers over background (legacy; can look sticker-like)."""
-
-    out = background_rgb.copy()
-    thr = int(threshold)
-    for obj_rgb in object_rgbs:
-        mask = np.max(obj_rgb, axis=2) > thr
-        out[mask] = obj_rgb[mask]
-    return out
-
-
-def _object_alpha_from_black_bg(
-    rgb: np.ndarray, threshold: int, *, gamma: float = 1.0
-) -> np.ndarray:
-    """Estimate an alpha matte from an object-only render on black."""
-
-    t = float(threshold) / 255.0
-    lum = np.max(rgb.astype(np.float32) / 255.0, axis=2)
-    alpha = np.clip((lum - t) / max(1e-6, 1.0 - t), 0.0, 1.0)
-    if gamma != 1.0:
-        alpha = np.power(alpha, float(gamma))
-    return alpha[..., np.newaxis]
-
-
-def _composite_layers_alpha(
-    background_rgb: np.ndarray,
-    object_rgbs: list[np.ndarray],
-    *,
-    threshold: int,
-    alpha_gamma: float = 1.0,
-) -> np.ndarray:
-    """Alpha-matte each object layer over the background.
-
-    Objects are still placed via separate 3D renders (correct projection), but the
-    merge uses opacity rather than a depth test against the background. That avoids
-    background floaters winning the depth buffer and erasing semi-transparent boxes.
-    """
-
-    out = background_rgb.astype(np.float32)
-    for obj_rgb in object_rgbs:
-        obj = obj_rgb.astype(np.float32)
-        alpha = _object_alpha_from_black_bg(obj_rgb, threshold, gamma=alpha_gamma)
-        out = obj * alpha + out * (1.0 - alpha)
-    return np.clip(out, 0.0, 255.0).astype(np.uint8)
-
-
-def _composite_layers_depth(
-    background_rgb: np.ndarray,
-    background_depth: np.ndarray,
-    object_layers: list[tuple[np.ndarray, np.ndarray]],
-    *,
-    fg_threshold: int,
-) -> np.ndarray:
-    """Depth-buffer merge of separately rasterized background + object layers.
-
-    Each layer is rendered in its own 3D pass (correct projection/placement). At
-    composite time the nearest surface wins per pixel, so objects sit in the scene
-    instead of being pasted on top of the foreground.
-    """
-
-    out = background_rgb.copy()
-    best_depth = _depth_scalar(background_depth)
-    best_depth = np.where(best_depth > 1e-6, best_depth, np.inf)
-    thr = int(fg_threshold)
-
-    for obj_rgb, obj_depth in object_layers:
-        obj_d = _depth_scalar(obj_depth)
-        fg = np.max(obj_rgb, axis=2) > thr
-        valid = fg & (obj_d > 1e-6)
-        closer = valid & (obj_d < best_depth)
-        out[closer] = obj_rgb[closer]
-        best_depth[closer] = obj_d[closer]
-    return out
-
-
-def _boost_opacity(vertices: np.ndarray, boost: float) -> np.ndarray:
-    """Multiply per-Gaussian activated opacity (alpha) by ``boost`` and clamp to (0, 1).
-
-    Object-only 4DGS reconstructions of solid objects often end up semi-transparent
-    (low alpha), so when composited over the background the boxes look faint and the
-    floor shows through. Scaling alpha in linear space and re-encoding the logit makes
-    the solid object read as solid while preserving the relative opacity structure
-    (faint halo stays comparatively faint).
-    """
-
-    if boost is None or boost == 1.0:
-        return vertices
-    out = vertices.copy()
-    logit = out["opacity"].astype(np.float64)
-    alpha = 1.0 / (1.0 + np.exp(-logit))
-    alpha = np.clip(alpha * float(boost), 1e-4, 1.0 - 1e-4)
-    out["opacity"] = np.log(alpha / (1.0 - alpha)).astype(np.float32)
-    return out
 
 
 def _prepare_object(

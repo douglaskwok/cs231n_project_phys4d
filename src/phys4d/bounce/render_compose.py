@@ -11,7 +11,10 @@ from pathlib import Path
 import numpy as np
 
 from .gaussian_ply import (
+    crop_gaussian_vertices_box,
     crop_gaussian_vertices_radius,
+    filter_gaussian_vertices_max_scale,
+    filter_gaussian_vertices_min_opacity,
     gaussian_xyz,
     load_gaussian_vertices,
     merge_gaussian_vertices,
@@ -168,6 +171,58 @@ def _load_vertices_into_wu_model(gaussians: object, vertices: np.ndarray) -> Non
     gaussians.active_sh_degree = gaussians.max_sh_degree
 
 
+class _WuCloudSession:
+    """GPU session for a single Gaussian cloud (background or one object)."""
+
+    def __init__(
+        self,
+        *,
+        cfg_args_path: Path,
+        vertices: np.ndarray,
+        wu_root: Path | None,
+        white_background: bool,
+    ) -> None:
+        wu = Path(wu_root or default_wu_root())
+        _ensure_wu_on_path(wu)
+
+        import torch
+        from argparse import Namespace
+        from gaussian_renderer import render as wu_render
+        from scene.gaussian_model import GaussianModel
+
+        self._torch = torch
+        self._wu_render = wu_render
+        self._canonical_xyz = gaussian_xyz(vertices).astype(np.float32)
+
+        args = load_cfg_args(cfg_args_path)
+        self._gaussians = GaussianModel(3, args)
+        _load_vertices_into_wu_model(self._gaussians, vertices)
+
+        self._pipe = Namespace(convert_SHs_python=False, compute_cov3D_python=False, debug=False)
+        self._bg = torch.tensor(
+            [1.0, 1.0, 1.0] if white_background else [0.0, 0.0, 0.0],
+            dtype=torch.float32,
+            device="cuda",
+        )
+
+    def set_delta(self, delta: np.ndarray) -> None:
+        delta = np.asarray(delta, dtype=np.float32).reshape(3)
+        new_xyz = self._canonical_xyz + delta[None, :]
+        self._gaussians._xyz.data[:] = self._torch.from_numpy(new_xyz).cuda()
+
+    def render(self, camera_frame: dict) -> tuple[np.ndarray, np.ndarray]:
+        cam = _build_minicam_from_frame(camera_frame)
+        with self._torch.no_grad():
+            pkg = self._wu_render(
+                cam, self._gaussians, self._pipe, self._bg, stage="coarse", cam_type=None
+            )
+            rgb = pkg["render"].clamp(0.0, 1.0).detach().cpu().numpy()
+            depth = pkg["depth"].detach().cpu().numpy()
+        rgb_u8 = (rgb.transpose(1, 2, 0) * 255.0).astype(np.uint8)
+        depth_map = np.transpose(depth, (1, 2, 0)) if depth.ndim == 3 else depth
+        return rgb_u8, depth_map
+
+
 class _WuCompositeSession:
     """GPU session that loads object+background once and only translates object xyz per frame."""
 
@@ -220,6 +275,98 @@ class _WuCompositeSession:
             )
             rgb = pkg["render"].clamp(0.0, 1.0).detach().cpu().numpy()
         return (rgb.transpose(1, 2, 0) * 255.0).astype(np.uint8)
+
+
+def _depth_scalar(depth: np.ndarray) -> np.ndarray:
+    """Reduce a Wu depth buffer to a single ``(H, W)`` plane."""
+
+    arr = np.asarray(depth, dtype=np.float64)
+    if arr.ndim == 3:
+        arr = arr[..., 0] if arr.shape[-1] == 1 else arr.mean(axis=-1)
+    return arr
+
+
+def _composite_layers_threshold(
+    background_rgb: np.ndarray,
+    object_rgbs: list[np.ndarray],
+    *,
+    threshold: int,
+) -> np.ndarray:
+    """Hard-mask object layers over background (legacy; can look sticker-like)."""
+
+    out = background_rgb.copy()
+    thr = int(threshold)
+    for obj_rgb in object_rgbs:
+        mask = np.max(obj_rgb, axis=2) > thr
+        out[mask] = obj_rgb[mask]
+    return out
+
+
+def _object_alpha_from_black_bg(
+    rgb: np.ndarray, threshold: int, *, gamma: float = 1.0
+) -> np.ndarray:
+    """Estimate an alpha matte from an object-only render on black."""
+
+    t = float(threshold) / 255.0
+    lum = np.max(rgb.astype(np.float32) / 255.0, axis=2)
+    alpha = np.clip((lum - t) / max(1e-6, 1.0 - t), 0.0, 1.0)
+    if gamma != 1.0:
+        alpha = np.power(alpha, float(gamma))
+    return alpha[..., np.newaxis]
+
+
+def _composite_layers_alpha(
+    background_rgb: np.ndarray,
+    object_rgbs: list[np.ndarray],
+    *,
+    threshold: int,
+    alpha_gamma: float = 1.0,
+) -> np.ndarray:
+    """Alpha-matte each object layer over the background."""
+
+    out = background_rgb.astype(np.float32)
+    for obj_rgb in object_rgbs:
+        obj = obj_rgb.astype(np.float32)
+        alpha = _object_alpha_from_black_bg(obj_rgb, threshold, gamma=alpha_gamma)
+        out = obj * alpha + out * (1.0 - alpha)
+    return np.clip(out, 0.0, 255.0).astype(np.uint8)
+
+
+def _composite_layers_depth(
+    background_rgb: np.ndarray,
+    background_depth: np.ndarray,
+    object_layers: list[tuple[np.ndarray, np.ndarray]],
+    *,
+    fg_threshold: int,
+) -> np.ndarray:
+    """Depth-buffer merge of separately rasterized background + object layers."""
+
+    out = background_rgb.copy()
+    best_depth = _depth_scalar(background_depth)
+    best_depth = np.where(best_depth > 1e-6, best_depth, np.inf)
+    thr = int(fg_threshold)
+
+    for obj_rgb, obj_depth in object_layers:
+        obj_d = _depth_scalar(obj_depth)
+        fg = np.max(obj_rgb, axis=2) > thr
+        valid = fg & (obj_d > 1e-6)
+        closer = valid & (obj_d < best_depth)
+        out[closer] = obj_rgb[closer]
+        best_depth[closer] = obj_d[closer]
+    return out
+
+
+def _boost_opacity(vertices: np.ndarray, boost: float) -> np.ndarray:
+    """Multiply per-Gaussian activated opacity by ``boost`` and clamp to (0, 1)."""
+
+    if boost is None or boost == 1.0:
+        return vertices
+    out = vertices.copy()
+    logit = out["opacity"].astype(np.float64)
+    alpha = 1.0 / (1.0 + np.exp(-logit))
+    alpha = np.clip(alpha * float(boost), 1e-4, 1.0 - 1e-4)
+    out["opacity"] = np.log(alpha / (1.0 - alpha)).astype(np.float32)
+    return out
 
 
 def _read_rgb_png(path: Path) -> np.ndarray:
@@ -343,6 +490,14 @@ def run_step5(
     sphere_radius_m: float = 0.1,
     object_scale: float | None = None,
     object_crop_radius: float | None = None,
+    object_crop_box_half_extents_m: np.ndarray | None = None,
+    object_max_scale: float | None = None,
+    object_min_opacity: float | None = 0.05,
+    object_opacity_boost: float = 1.0,
+    composite_2d: bool = True,
+    composite_mode: str = "alpha",
+    composite_threshold: int = 32,
+    composite_alpha_gamma: float = 1.0,
     cameras: list[int] | None = None,
     skip_existing: bool = False,
 ) -> Step5Result:
@@ -353,7 +508,16 @@ def run_step5(
     object is scaled about its own centroid and then placed at the predicted metric
     position each frame. When ``None`` (object already metric, e.g. the big ball) the
     object is simply translated by ``pred - p_ref``.
+
+    By default uses layered alpha compositing (same as collision): render background
+    and object in separate 3D passes, then alpha-matte the object over the background.
     """
+
+    composite_mode = str(composite_mode).lower()
+    if composite_mode not in {"alpha", "depth", "threshold", "merge3d"}:
+        raise ValueError(f"unsupported composite_mode: {composite_mode}")
+    if not composite_2d:
+        composite_mode = "merge3d"
 
     out_dir = out_dir.resolve()
     renders_dir = out_dir / "renders"
@@ -365,15 +529,21 @@ def run_step5(
 
     _, _, ref_positions = load_trajectory_csv(ref_traj_csv)
     p_ref = ref_positions[0].copy()
-    canonical_centroid = opacity_weighted_centroid(canonical)
-    if object_crop_radius is not None and object_crop_radius > 0:
-        # Crop the diffuse halo in *source* 4DGS units, around the ball centroid.
-        canonical = crop_gaussian_vertices_radius(canonical, canonical_centroid, float(object_crop_radius))
-        canonical_centroid = opacity_weighted_centroid(canonical)
+    placement_center = opacity_weighted_centroid(canonical)
+    if object_crop_box_half_extents_m is not None and object_scale is not None:
+        half_src = np.asarray(object_crop_box_half_extents_m, dtype=np.float64) / float(object_scale)
+        canonical = crop_gaussian_vertices_box(canonical, placement_center, half_src)
+    elif object_crop_radius is not None and object_crop_radius > 0:
+        canonical = crop_gaussian_vertices_radius(canonical, placement_center, float(object_crop_radius))
+    if object_min_opacity is not None and object_min_opacity > 0:
+        canonical = filter_gaussian_vertices_min_opacity(canonical, float(object_min_opacity))
+    canonical = _boost_opacity(canonical, object_opacity_boost)
     if object_scale is not None:
-        # Pre-scale the object about its centroid once; per-frame we re-center it on
-        # the predicted metric position (centroid is preserved by centroid-scaling).
-        canonical = scale_gaussian_vertices(canonical, float(object_scale), center=canonical_centroid)
+        canonical = scale_gaussian_vertices(canonical, float(object_scale), center=placement_center)
+    if object_max_scale is not None and object_max_scale > 0:
+        canonical = filter_gaussian_vertices_max_scale(canonical, float(object_max_scale))
+    canonical_centroid = opacity_weighted_centroid(canonical)
+    scaled = object_scale is not None
 
     transforms_test = dynerf_export.resolve() / "transforms_test.json"
     if not transforms_test.is_file():
@@ -392,24 +562,50 @@ def run_step5(
         if not torch.cuda.is_available():
             use_wu = False
 
-    render_mode = "wu_3dgs" if use_wu else "overlay_fallback"
+    if use_wu and composite_mode in {"alpha", "depth", "threshold"}:
+        render_mode = f"wu_3dgs_{composite_mode}_composite"
+    elif use_wu:
+        render_mode = "wu_3dgs"
+    else:
+        render_mode = "overlay_fallback"
     num_rendered = 0
     num_skipped = 0
     missing_pred = 0
 
     wu_session: _WuCompositeSession | None = None
+    bg_session: _WuCloudSession | None = None
+    obj_session: _WuCloudSession | None = None
     if use_wu:
-        print(
-            f"Step 5 Wu session: {canonical.shape[0]} object + {background.shape[0]} background Gaussians",
-            flush=True,
-        )
-        wu_session = _WuCompositeSession(
-            cfg_args_path=cfg_args,
-            canonical_vertices=canonical,
-            background_vertices=background,
-            wu_root=wu_root,
-            white_background=white_background,
-        )
+        if composite_mode in {"alpha", "depth", "threshold"}:
+            print(
+                f"Step 5 Wu {composite_mode} composite: background ({background.shape[0]} Gaussians) + "
+                f"object ({canonical.shape[0]} Gaussians)",
+                flush=True,
+            )
+            bg_session = _WuCloudSession(
+                cfg_args_path=cfg_args,
+                vertices=background,
+                wu_root=wu_root,
+                white_background=white_background,
+            )
+            obj_session = _WuCloudSession(
+                cfg_args_path=cfg_args,
+                vertices=canonical,
+                wu_root=wu_root,
+                white_background=False,
+            )
+        else:
+            print(
+                f"Step 5 Wu session: {canonical.shape[0]} object + {background.shape[0]} background Gaussians",
+                flush=True,
+            )
+            wu_session = _WuCompositeSession(
+                cfg_args_path=cfg_args,
+                canonical_vertices=canonical,
+                background_vertices=background,
+                wu_root=wu_root,
+                white_background=white_background,
+            )
 
     cam_filter = set(cameras) if cameras else None
     total_views = len(frames)
@@ -429,16 +625,41 @@ def run_step5(
             num_rendered += 1
             continue
 
-        # Scaled object: centroid preserved by centroid-scaling, so place the
-        # (already-scaled) canonical centroid on the predicted metric position.
-        # Unscaled object (metric): keep the original pred - p_ref translation.
-        delta = (pred - canonical_centroid) if object_scale is not None else (pred - p_ref)
+        # Scaled object: place the (already-scaled) placement center on the predicted
+        # metric position. Unscaled object (metric): pred - p_ref translation.
+        delta = (pred - placement_center) if scaled else (pred - p_ref)
         camera_blob = {**blob, **frame_rec}
 
         if use_wu:
-            assert wu_session is not None
-            wu_session.set_object_delta(delta)
-            rgb = wu_session.render(camera_blob)
+            if composite_mode in {"alpha", "depth", "threshold"}:
+                assert bg_session is not None and obj_session is not None
+                bg_rgb, bg_depth = bg_session.render(camera_blob)
+                obj_session.set_delta(delta)
+                obj_rgb, obj_depth = obj_session.render(camera_blob)
+                if composite_mode == "alpha":
+                    rgb = _composite_layers_alpha(
+                        bg_rgb,
+                        [obj_rgb],
+                        threshold=composite_threshold,
+                        alpha_gamma=composite_alpha_gamma,
+                    )
+                elif composite_mode == "depth":
+                    rgb = _composite_layers_depth(
+                        bg_rgb,
+                        bg_depth,
+                        [(obj_rgb, obj_depth)],
+                        fg_threshold=composite_threshold,
+                    )
+                else:
+                    rgb = _composite_layers_threshold(
+                        bg_rgb,
+                        [obj_rgb],
+                        threshold=composite_threshold,
+                    )
+            else:
+                assert wu_session is not None
+                wu_session.set_object_delta(delta)
+                rgb = wu_session.render(camera_blob)
         else:
             rgb = _render_overlay_fallback(
                 predicted=predicted,
@@ -462,8 +683,20 @@ def run_step5(
 
     meta = {
         "render_mode": render_mode,
+        "composite_2d": composite_mode in {"alpha", "depth", "threshold"},
+        "composite_mode": composite_mode,
+        "composite_threshold": int(composite_threshold),
+        "composite_alpha_gamma": float(composite_alpha_gamma),
         "object_scale": float(object_scale) if object_scale is not None else None,
         "object_crop_radius": float(object_crop_radius) if object_crop_radius else None,
+        "object_crop_box_half_extents_m": (
+            np.asarray(object_crop_box_half_extents_m, dtype=np.float64).tolist()
+            if object_crop_box_half_extents_m is not None
+            else None
+        ),
+        "object_max_scale": float(object_max_scale) if object_max_scale is not None else None,
+        "object_min_opacity": float(object_min_opacity) if object_min_opacity is not None else None,
+        "object_opacity_boost": float(object_opacity_boost),
         "num_object_gaussians": int(canonical.shape[0]),
         "num_rendered": num_rendered,
         "num_skipped_existing": num_skipped,
@@ -472,7 +705,8 @@ def run_step5(
         "num_missing_predictions": missing_pred,
         "p_ref": p_ref.tolist(),
         "p_ref_source": "ref_traj_first_row",
-        "canonical_centroid": opacity_weighted_centroid(canonical).tolist(),
+        "placement_center": placement_center.tolist(),
+        "canonical_centroid": canonical_centroid.tolist(),
         "canonical_ply": str(canonical_ply.resolve()),
         "bg_ply": str(bg_ply.resolve()),
         "predicted_csv": str(predicted_csv.resolve()),
