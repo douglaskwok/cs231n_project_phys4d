@@ -1,29 +1,56 @@
 #!/usr/bin/env bash
 # Full collision workflow.md (steps 4a-6) for
 # wu_collision_scale1p75_v1p4_sidecams_60fps_scene_0000 (two objects, 60 fps, 157 frames).
-# 65/35 train/test split: train 0-101, test 102-156.
+# Event-aligned split: hold out 20 frames around the second object-object impact.
 # Run from YOUR terminal so Modal progress bars are visible.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PYTHONPATH=src
 PY="${PY:-.venv_pipeline/bin/python}"
 
-SCENE="${SCENE:-wu_collision_scale1p75_v1p4_sidecams_60fps_scene_0000}"
+SCENE="${SCENE:-dataset/outputs/phys4d_final/collision_scale1p75_v1p4_sidecams_60fps/scene_0000_collision_room}"
 WU_A="${WU_A:-$SCENE/4dgs_wu/wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_a_compactA_bg2_area0p2_iso0p05_from50k_to60k}"
 WU_B="${WU_B:-$SCENE/4dgs_wu/wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k/wu4dgs_wu_collision_scale1p75_v1p4_object_b_compactA_bg2_area0p2_iso0p05_from50k_to60k}"
 ITER="${ITER:-60000}"
+ITER_A="${ITER_A:-$ITER}"
+ITER_B="${ITER_B:-$ITER}"
 RUN="${RUN:-outputs/collision_pipeline/$(basename "$SCENE")}"
 MBASE="${MBASE:-wu_collision_scene0000}"
 BG_NAME="${BG_NAME:-collision_room_med}"
 BG_PLY_REL="bg_${BG_NAME}_3dgs/point_cloud/iteration_30000/point_cloud.ply"
+COLLISION_OBJECT_OPACITY_BOOST="${COLLISION_OBJECT_OPACITY_BOOST:-4.0}"
+COLLISION_COMPOSITE_MODE="${COLLISION_COMPOSITE_MODE:-alpha}"
+COLLISION_COMPOSITE_THRESHOLD="${COLLISION_COMPOSITE_THRESHOLD:-32}"
+COLLISION_COMPOSITE_ALPHA_GAMMA="${COLLISION_COMPOSITE_ALPHA_GAMMA:-1.0}"
 MODAL="${MODAL:-modal}"
+export MODAL_CLI="${MODAL_CLI:-$MODAL}"
+FFMPEG_BIN="${FFMPEG_BIN:-}"
+if [[ -z "$FFMPEG_BIN" ]] && command -v ffmpeg >/dev/null 2>&1; then
+  FFMPEG_BIN="$(command -v ffmpeg)"
+fi
+if [[ -z "$FFMPEG_BIN" ]]; then
+  set +e
+  FFMPEG_BIN="$("$PY" -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())' 2>/dev/null)"
+  FFMPEG_STATUS=$?
+  set -e
+  if [[ "$FFMPEG_STATUS" -ne 0 ]]; then
+    FFMPEG_BIN=""
+  fi
+fi
 
-TRAIN_START="${TRAIN_START:-0}"
-TRAIN_END="${TRAIN_END:-101}"
-TEST_START="${TEST_START:-102}"
-TEST_END="${TEST_END:-156}"
 FPS="${FPS:-60}"
 MODEL_LAST="${MODEL_LAST:-156}"
+
+if [[ -z "${TRAIN_START:-}" || -z "${TRAIN_END:-}" || -z "${TEST_START:-}" || -z "${TEST_END:-}" ]]; then
+  SPLIT_VARS=$("$PY" scripts/collision/choose_prediction_split.py "$SCENE" \
+    --pre-collision-frames "${PRE_COLLISION_FRAMES:-5}" \
+    --post-collision-frames "${POST_COLLISION_FRAMES:-14}")
+  eval "$SPLIT_VARS"
+fi
+TRAIN_START="${TRAIN_START:-0}"
+TRAIN_END="${TRAIN_END:-111}"
+TEST_START="${TEST_START:-112}"
+TEST_END="${TEST_END:-131}"
 
 GT0="$RUN/_poses/object_poses_obj0.csv"
 GT1="$RUN/_poses/object_poses_obj1.csv"
@@ -57,22 +84,27 @@ rm -rf "$RUN/_step4a_stage/export"
   --out "$RUN/_step4a_stage/export" \
   --train-end "$MODEL_LAST" --test-start "$TEST_START" --test-end "$TEST_END"
 
-echo "=== stage both objects (iter $ITER) + per-object GT poses ==="
+echo "=== stage both objects (obj0 iter $ITER_A, obj1 iter $ITER_B) + per-object GT poses ==="
 for k in 0 1; do
   WU="$WU_A"
-  [[ "$k" == "1" ]] && WU="$WU_B"
+  OBJ_ITER="$ITER_A"
+  if [[ "$k" == "1" ]]; then
+    WU="$WU_B"
+    OBJ_ITER="$ITER_B"
+  fi
   mkdir -p "$RUN/_step4a_stage/obj$k" "$RUN/_step4a_stage/scene"
-  cp -f "$WU/point_cloud/iteration_$ITER/point_cloud.ply"       "$RUN/_step4a_stage/obj$k/"
-  cp -f "$WU/point_cloud/iteration_$ITER/deformation.pth"       "$RUN/_step4a_stage/obj$k/"
-  cp -f "$WU/point_cloud/iteration_$ITER/deformation_table.pth" "$RUN/_step4a_stage/obj$k/"
-  cp -f "$WU/cfg_args"                                          "$RUN/_step4a_stage/obj$k/"
+  cp -f "$WU/point_cloud/iteration_$OBJ_ITER/point_cloud.ply"       "$RUN/_step4a_stage/obj$k/"
+  cp -f "$WU/point_cloud/iteration_$OBJ_ITER/deformation.pth"       "$RUN/_step4a_stage/obj$k/"
+  cp -f "$WU/point_cloud/iteration_$OBJ_ITER/deformation_table.pth" "$RUN/_step4a_stage/obj$k/"
+  cp -f "$WU/cfg_args"                                              "$RUN/_step4a_stage/obj$k/"
   "$PY" scripts/bounce/sanitize_canonical_ply.py --ply "$RUN/_step4a_stage/obj$k/point_cloud.ply"
 done
 cp -f "$GT0" "$RUN/_step4a_stage/scene/"
 cp -f "$GT1" "$RUN/_step4a_stage/scene/"
 
 echo "=== step4a: upload + run (GPU) ==="
-$MODAL run modal_app.py --upload-collision-step4a --collision-step4a-dir "$RUN/_step4a_stage"
+$MODAL volume rm phys4d-gs-data step4a -r 2>/dev/null || true
+$MODAL volume put phys4d-gs-data "$RUN/_step4a_stage" step4a
 $MODAL run modal_app.py --collision-step4a --collision-out-rel "$MBASE/step4a"
 
 echo "=== download step4a ==="
@@ -159,14 +191,17 @@ for k in 0 1; do
   cp "$RUN/step4c/trajectory_predicted_obj$k.csv" "$RUN/_step5_stage/step4c/"
 done
 cp -f "$GT0" "$GT1" "$RUN/_step5_stage/scene/"
-$MODAL run modal_app.py --upload-collision-step5 --collision-step5-dir "$RUN/_step5_stage"
+$MODAL volume rm phys4d-gs-data step5 -r 2>/dev/null || true
+$MODAL volume put phys4d-gs-data "$RUN/_step5_stage" step5
 $MODAL volume rm phys4d-gs-output step5 -r 2>/dev/null || true
 $MODAL run modal_app.py --collision-step5 \
   --collision-bg-ply-rel "$BG_PLY_REL" \
   --collision-object-scale "$SCALE0,$SCALE1" \
-  --collision-object-opacity-boost 4.0 \
+  --collision-object-opacity-boost "$COLLISION_OBJECT_OPACITY_BOOST" \
   --collision-object-crop-box-half-extents "0.21,0.21,0.13125" \
-  --collision-composite-mode alpha
+  --collision-composite-mode "$COLLISION_COMPOSITE_MODE" \
+  --collision-composite-threshold "$COLLISION_COMPOSITE_THRESHOLD" \
+  --collision-composite-alpha-gamma "$COLLISION_COMPOSITE_ALPHA_GAMMA"
 
 echo "=== download step5 ==="
 rm -rf "$RUN/step5"
@@ -194,9 +229,13 @@ for cam in cam10 cam11; do
     if cp "$RUN/step5/renders/$src" "$dst" 2>/dev/null; then i=$((i+1)); fi
   done
   if [[ "$i" -gt 0 ]]; then
-    ffmpeg -y -loglevel error -framerate "$FPS" -i "$RUN/step5/_mp4_frames/frame%05d.png" \
-      -c:v libx264 -pix_fmt yuv420p -crf 18 -movflags +faststart \
-      "$RUN/step5/fused_scene_$cam.mp4" && echo "wrote fused_scene_$cam.mp4 ($i frames)"
+    if [[ -n "$FFMPEG_BIN" ]]; then
+      "$FFMPEG_BIN" -y -loglevel error -framerate "$FPS" -i "$RUN/step5/_mp4_frames/frame%05d.png" \
+        -c:v libx264 -pix_fmt yuv420p -crf 18 -movflags +faststart \
+        "$RUN/step5/fused_scene_$cam.mp4" && echo "wrote fused_scene_$cam.mp4 ($i frames)"
+    else
+      echo "mp4 skip $cam (ffmpeg not found)"
+    fi
   else
     echo "mp4 skip $cam (no frames)"
   fi

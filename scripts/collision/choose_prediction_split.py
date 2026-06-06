@@ -56,7 +56,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("scene_dir", type=Path)
     ap.add_argument("--pre-collision-frames", type=int, default=5)
-    ap.add_argument("--post-collision-frames", type=int, default=30)
+    ap.add_argument("--post-collision-frames", type=int, default=14)
     ap.add_argument("--contact-slack-m", type=float, default=0.015)
     ap.add_argument("--min-gap-frames", type=int, default=8)
     ap.add_argument(
@@ -124,10 +124,13 @@ def main() -> int:
     elif args.require_wall_before_second:
         raise RuntimeError("No wall candidates found between first and second contact.")
 
+    window_frames = int(args.pre_collision_frames) + int(args.post_collision_frames) + 1
     test_start = max(frames[0] + 1, second_frame - int(args.pre_collision_frames))
     train_start = frames[0]
+    test_end = min(frames[-1], test_start + window_frames - 1)
+    if test_end - test_start + 1 < window_frames:
+        test_start = max(frames[0] + 1, test_end - window_frames + 1)
     train_end = test_start - 1
-    test_end = min(frames[-1], second_pair[1] + int(args.post_collision_frames))
 
     out = {
         "scene": scene_dir.name,
@@ -145,6 +148,7 @@ def main() -> int:
         "model_last": frames[-1],
         "pre_collision_frames": int(args.pre_collision_frames),
         "post_collision_frames": int(args.post_collision_frames),
+        "window_frames": window_frames,
         "train_after_wall_bounce": bool(train_end > wall_frame) if wall_frame is not None else None,
     }
     if args.json:

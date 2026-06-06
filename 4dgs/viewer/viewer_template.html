@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>4DGS time viewer</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #1a1d24;
+      --text: #e8eaed;
+      --muted: #9aa0a6;
+      --accent: #5b9cf5;
+      --border: #2d323c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 1rem 1.25rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 { margin: 0 0 0.25rem; font-size: 1.15rem; font-weight: 600; }
+    .sub { color: var(--muted); font-size: 0.85rem; }
+    main { padding: 1rem 1.25rem 2rem; max-width: 1400px; margin: 0 auto; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      align-items: center;
+      margin-bottom: 1rem;
+      padding: 0.85rem 1rem;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    label { font-size: 0.8rem; color: var(--muted); display: flex; flex-direction: column; gap: 0.25rem; }
+    select, button, input[type="range"] { font: inherit; }
+    select, button {
+      background: #252a33;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.4rem 0.6rem;
+    }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); color: #0b1020; border-color: transparent; font-weight: 600; }
+    .time-row { flex: 1 1 280px; min-width: 200px; }
+    .time-row input[type="range"] { width: 100%; accent-color: var(--accent); }
+    .time-label { font-variant-numeric: tabular-nums; font-size: 0.95rem; color: var(--text); }
+    .viewports {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    @media (max-width: 900px) { .viewports { grid-template-columns: 1fr; } }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .panel h2 {
+      margin: 0;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .panel img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #000;
+      min-height: 200px;
+      object-fit: contain;
+    }
+    .grid-wrap {
+      padding: 0.5rem;
+      display: grid;
+      gap: 4px;
+      background: #000;
+    }
+    .grid-wrap img {
+      width: 100%;
+      height: auto;
+      border-radius: 2px;
+    }
+    .hidden { display: none !important; }
+    .chk { flex-direction: row !important; align-items: center; gap: 0.4rem; }
+    .chk input { margin: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title">4DGS time viewer</h1>
+    <div class="sub" id="subtitle"></div>
+  </header>
+  <main>
+    <div class="controls">
+      <label class="time-row">
+        Time
+        <input type="range" id="frameSlider" min="0" max="0" value="0" step="1" />
+        <span class="time-label" id="timeLabel">t = 0.000 s · frame 0</span>
+      </label>
+      <label>
+        Camera
+        <select id="camSelect"></select>
+      </label>
+      <label class="chk">
+        <input type="checkbox" id="showGrid" />
+        Multi-cam grid
+      </label>
+      <label class="chk" id="gtToggleWrap">
+        <input type="checkbox" id="showGt" />
+        Show ground truth
+      </label>
+      <button type="button" class="primary" id="playBtn">Play</button>
+      <label>
+        FPS
+        <select id="fpsSelect">
+          <option value="10">10</option>
+          <option value="24" selected>24</option>
+          <option value="30">30</option>
+          <option value="60">60</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="viewports" id="singleView">
+      <div class="panel">
+        <h2>4DGS render</h2>
+        <img id="renderImg" alt="4DGS render" />
+      </div>
+      <div class="panel hidden" id="gtPanel">
+        <h2>Ground truth</h2>
+        <img id="gtImg" alt="Ground truth" />
+      </div>
+    </div>
+
+    <div class="panel hidden" id="gridPanel" style="margin-top: 1rem;">
+      <h2>All cameras at current time</h2>
+      <div class="grid-wrap" id="grid"></div>
+    </div>
+  </main>
+
+  <script>
+    const MANIFEST = __MANIFEST_JSON__;
+    const RENDER_PREFIX = __RENDER_PREFIX__;
+    const GT_PREFIX = __GT_PREFIX__;
+
+    const frames = MANIFEST.frames;
+    const gtFrames = MANIFEST.gt_frames;
+    const cameraIds = MANIFEST.camera_ids.map(String);
+    const hasGt = Boolean(gtFrames && gtFrames.length);
+
+    document.getElementById("title").textContent =
+      MANIFEST.mode === "orbit" ? "4DGS orbit viewer" : "4DGS time viewer";
+    document.getElementById("subtitle").textContent =
+      `${frames.length} time steps · cameras [${cameraIds.join(", ")}]` +
+      (MANIFEST.dataset ? ` · dataset ${MANIFEST.dataset}` : "");
+
+    const slider = document.getElementById("frameSlider");
+    const timeLabel = document.getElementById("timeLabel");
+    const camSelect = document.getElementById("camSelect");
+    const renderImg = document.getElementById("renderImg");
+    const gtImg = document.getElementById("gtImg");
+    const gtPanel = document.getElementById("gtPanel");
+    const gtToggleWrap = document.getElementById("gtToggleWrap");
+    const showGt = document.getElementById("showGt");
+    const showGrid = document.getElementById("showGrid");
+    const gridPanel = document.getElementById("gridPanel");
+    const grid = document.getElementById("grid");
+    const singleView = document.getElementById("singleView");
+    const playBtn = document.getElementById("playBtn");
+    const fpsSelect = document.getElementById("fpsSelect");
+
+    slider.max = String(Math.max(0, frames.length - 1));
+
+    for (const cam of cameraIds) {
+      const opt = document.createElement("option");
+      opt.value = cam;
+      opt.textContent = `cam ${cam}`;
+      camSelect.appendChild(opt);
+    }
+
+    if (!hasGt) {
+      gtToggleWrap.classList.add("hidden");
+      showGt.checked = false;
+    }
+
+    function frameRow(i) {
+      return frames[Number(i)] || frames[0];
+    }
+
+    function gtRow(i) {
+      if (!hasGt) return null;
+      const idx = frameRow(i).index;
+      return gtFrames.find((r) => r.index === idx) || gtFrames[i] || null;
+    }
+
+    function renderUrl(row, cam) {
+      const rel = row.cams[cam];
+      return rel ? RENDER_PREFIX + rel : "";
+    }
+
+    function gtUrl(row, cam) {
+      if (!row) return "";
+      const rel = row.cams[cam];
+      return rel ? GT_PREFIX + rel : "";
+    }
+
+    function updateView() {
+      const i = Number(slider.value);
+      const cam = camSelect.value;
+      const row = frameRow(i);
+      const gt = gtRow(i);
+
+      timeLabel.textContent =
+        `t = ${row.time_s.toFixed(3)} s · frame ${row.index}` +
+        (MANIFEST.mode === "orbit" ? " · orbit" : ` · cam ${cam}`);
+
+      renderImg.src = renderUrl(row, cam);
+
+      if (showGt.checked && hasGt && gt) {
+        gtPanel.classList.remove("hidden");
+        singleView.style.gridTemplateColumns = "1fr 1fr";
+        gtImg.src = gtUrl(gt, cam);
+      } else {
+        gtPanel.classList.add("hidden");
+        singleView.style.gridTemplateColumns = "1fr";
+      }
+
+      if (showGrid.checked && MANIFEST.mode !== "orbit") {
+        gridPanel.classList.remove("hidden");
+        grid.innerHTML = "";
+        const cols = Math.min(4, Math.max(1, cameraIds.length));
+        grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+        for (const c of cameraIds) {
+          const cell = document.createElement("div");
+          const cap = document.createElement("div");
+          cap.textContent = `cam ${c}`;
+          cap.style.cssText = "font-size:10px;color:#9aa0a6;padding:2px 0;";
+          const im = document.createElement("img");
+          im.src = renderUrl(row, c);
+          im.alt = `cam ${c}`;
+          cell.appendChild(cap);
+          cell.appendChild(im);
+          grid.appendChild(cell);
+        }
+      } else {
+        gridPanel.classList.add("hidden");
+      }
+    }
+
+    let timer = null;
+    function setPlaying(on) {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+      playBtn.textContent = on ? "Pause" : "Play";
+      if (on) {
+        const ms = 1000 / Number(fpsSelect.value);
+        timer = setInterval(() => {
+          let next = Number(slider.value) + 1;
+          if (next >= frames.length) next = 0;
+          slider.value = String(next);
+          updateView();
+        }, ms);
+      }
+    }
+
+    slider.addEventListener("input", updateView);
+    camSelect.addEventListener("change", updateView);
+    showGt.addEventListener("change", updateView);
+    showGrid.addEventListener("change", updateView);
+    playBtn.addEventListener("click", () => setPlaying(!timer));
+    fpsSelect.addEventListener("change", () => { if (timer) setPlaying(true); });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === " ") {
+        e.preventDefault();
+        setPlaying(!timer);
+      } else if (e.key === "ArrowRight") {
+        slider.value = String(Math.min(frames.length - 1, Number(slider.value) + 1));
+        updateView();
+      } else if (e.key === "ArrowLeft") {
+        slider.value = String(Math.max(0, Number(slider.value) - 1));
+        updateView();
+      }
+    });
+
+    updateView();
+  </script>
+</body>
+</html>

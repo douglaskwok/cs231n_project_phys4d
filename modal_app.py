@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -81,6 +82,7 @@ def _ignore_repo_mount(path: Path) -> bool:
         or "__pycache__" in parts
         or path.name in {".DS_Store"}
         or path.suffix == ".pyc"
+        or path.name == "export_wu75k_z_summary.py"
         or parts[:2] == ("dataset", "outputs")
         or parts[:4] == ("4dgs", "experiments", "object_only", "runs")
         or parts[:4] == ("4dgs", "experiments", "wu4dgs", "runs")
@@ -89,6 +91,16 @@ def _ignore_repo_mount(path: Path) -> bool:
         or top.endswith("_4dgs")
         or top.endswith("_render")
         or top.endswith("_frames")
+    )
+
+
+def _ignore_scripts_mount(path: Path) -> bool:
+    parts = path.parts
+    return (
+        "__pycache__" in parts
+        or path.name in {".DS_Store"}
+        or path.suffix == ".pyc"
+        or path.name == "export_wu75k_z_summary.py"
     )
 
 _torch_image = modal.Image.from_registry(
@@ -188,7 +200,7 @@ _wu_image = (
         "pip install /opt/wu_src/submodules/simple-knn",
     )
     .add_local_dir(str(REPO_ROOT / "src"), remote_path="/repo/src", ignore=["__pycache__", ".DS_Store"])
-    .add_local_dir(str(REPO_ROOT / "scripts"), remote_path="/repo/scripts", ignore=["__pycache__", ".DS_Store"])
+    .add_local_dir(str(REPO_ROOT / "scripts"), remote_path="/repo/scripts", ignore=_ignore_scripts_mount)
     .add_local_dir(
         str(REPO_ROOT / "third_party" / "4DGaussians"),
         remote_path="/repo/third_party/4DGaussians",
@@ -245,7 +257,7 @@ _ml_image = (
     .add_local_dir(
         str(REPO_ROOT / "scripts"),
         remote_path="/repo/scripts",
-        ignore=["__pycache__", ".DS_Store"],
+        ignore=_ignore_scripts_mount,
     )
     .add_local_dir(
         str(REPO_ROOT / "configs"),
@@ -2251,8 +2263,9 @@ def collision_step5_remote(
 
 
 def _volume_put(local: Path, remote: str, *, volume: str = "phys4d-gs-data") -> None:
-    subprocess.run(["modal", "volume", "rm", volume, remote, "-r"], check=False)
-    subprocess.run(["modal", "volume", "put", volume, str(local), remote], check=True)
+    modal_cli = shlex.split(os.environ.get("MODAL_CLI", "modal"))
+    subprocess.run([*modal_cli, "volume", "rm", volume, remote, "-r"], check=False)
+    subprocess.run([*modal_cli, "volume", "put", volume, str(local), remote], check=True)
 
 
 @app.function(

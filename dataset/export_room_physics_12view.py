@@ -420,7 +420,7 @@ def _setup_collision_scene(
         "object_a_mass_kg": mass_a_kg,
         "object_b_mass_kg": 0.160,
         "object_restitution": restitution,
-        "object_lateral_friction": 0.02,
+        "object_lateral_friction": 0.002,
         "geometry_scale": geometry_scale,
         "wall_height_scale": wall_height_scale,
         "velocity_scale": velocity_scale,

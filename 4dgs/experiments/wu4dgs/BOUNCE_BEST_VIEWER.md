@@ -61,9 +61,9 @@ These are outside the main 3x3 tracker, but use the same ball-bounce dataset roo
 
 | Scene | Restitution | Angle | Status | 12-view viewer | Local path | Notes |
 | --- | ---: | ---: | --- | --- | --- | --- |
-| 0009 | 0.85 | -5 | training | - | `dataset/outputs/wu_ball_3x3_e89_e93_e97_angle5_table0p40_h0p80_r0p20_120fps_2p0s/scene_0009_e0p85_am5p0` | Active attached Modal run in screen `wu_e85_0009`: `wu_ball12_2s_blue_e85_am5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k`, app `ap-gaWWL8nBL3bkffEGxQMhdB`. |
-| 0010 | 0.85 | 0 | training | - | `dataset/outputs/wu_ball_3x3_e89_e93_e97_angle5_table0p40_h0p80_r0p20_120fps_2p0s/scene_0010_e0p85_a0p0` | Active attached Modal run in screen `wu_e85_0010`: `wu_ball12_2s_blue_e85_a0_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k`, app `ap-cs0RC80OSssVyyBgaZ0cF3`. |
-| 0011 | 0.85 | 5 | training | - | `dataset/outputs/wu_ball_3x3_e89_e93_e97_angle5_table0p40_h0p80_r0p20_120fps_2p0s/scene_0011_e0p85_a5p0` | Active attached Modal run in screen `wu_e85_0011`: `wu_ball12_2s_blue_e85_a5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k`, app `ap-DyQ09VipCyABHhGEXDaYS6`. |
+| 0009 | 0.85 | -5 | best | [open](http://127.0.0.1:8950/dataset/outputs/wu_ball_3x3_e89_e93_e97_angle5_table0p40_h0p80_r0p20_120fps_2p0s/scene_0009_e0p85_am5p0/4dgs_wu/wu_ball12_2s_blue_e85_am5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_viewer/index.html) | `dataset/outputs/wu_ball_3x3_e89_e93_e97_angle5_table0p40_h0p80_r0p20_120fps_2p0s/scene_0009_e0p85_am5p0/4dgs_wu/wu_ball12_2s_blue_e85_am5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_viewer/index.html` | 75k checkpoint with local 12-view HTML viewer generated from native train renders. |
+| 0010 | 0.85 | 0 | best | [open](http://127.0.0.1:8950/dataset/outputs/wu_ball_3x3_e89_e93_e97_angle5_table0p40_h0p80_r0p20_120fps_2p0s/scene_0010_e0p85_a0p0/4dgs_wu/wu_ball12_2s_blue_e85_a0_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_viewer/index.html) | `dataset/outputs/wu_ball_3x3_e89_e93_e97_angle5_table0p40_h0p80_r0p20_120fps_2p0s/scene_0010_e0p85_a0p0/4dgs_wu/wu_ball12_2s_blue_e85_a0_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_viewer/index.html` | 75k checkpoint with local 12-view HTML viewer generated from native train renders. |
+| 0011 | 0.85 | 5 | best | [open](http://127.0.0.1:8950/dataset/outputs/wu_ball_3x3_e89_e93_e97_angle5_table0p40_h0p80_r0p20_120fps_2p0s/scene_0011_e0p85_a5p0/4dgs_wu/wu_ball12_2s_blue_e85_a5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_viewer/index.html) | `dataset/outputs/wu_ball_3x3_e89_e93_e97_angle5_table0p40_h0p80_r0p20_120fps_2p0s/scene_0011_e0p85_a5p0/4dgs_wu/wu_ball12_2s_blue_e85_a5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k_viewer/index.html` | 75k checkpoint with local 12-view HTML viewer generated from native train renders. |
 
 ## Center Anchor Alternatives
 
@@ -75,6 +75,5 @@ These are useful for visual comparison on the `e=0.93, angle=0` center bounce:
 
 ## Pending Updates
 
-- Finish/download/render the active e=0.85 Wu runs for `0009`, `0010`, and `0011`.
 - QA the newly generated 12-view HTML wrappers for `0000`, `0002`, `0006`, `0007`, and `0008`.
 - Decide whether to rerender the center `0004` under the actual 3x3 dataset folder, or keep using the equivalent `0601_scene_0000_e0p93_a0p0` anchor.

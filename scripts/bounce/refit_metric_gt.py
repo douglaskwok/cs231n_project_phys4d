@@ -96,6 +96,40 @@ def main() -> int:
     ap.add_argument("--ground", type=float, default=None, help="contact-center z (default: GT z-min)")
     ap.add_argument("--fit-gravity", action="store_true")
     ap.add_argument("--fit-ground", action="store_true")
+    ap.add_argument(
+        "--fit-objective",
+        choices=["pos", "pos_zvel_ext", "pos_zvel_gt"],
+        default="pos",
+        help=(
+            "Residual used by each least-squares candidate: xyz position only, "
+            "or xyz position plus z-velocity agreement against extracted/GT train trajectory."
+        ),
+    )
+    ap.add_argument(
+        "--selection-metric",
+        choices=[
+            "train_z_rmse",
+            "train_xyz_rmse",
+            "train_ext_zvel_r2",
+            "train_gt_zvel_r2",
+            "train_ext_vel_r2",
+            "train_gt_vel_r2",
+        ],
+        default="train_xyz_rmse",
+        help="Metric used to choose among multi-start physics fits.",
+    )
+    ap.add_argument(
+        "--velocity-residual-weight",
+        type=float,
+        default=0.03,
+        help="Scale applied to velocity residual terms for --fit-objective pos_zvel_*.",
+    )
+    ap.add_argument(
+        "--restitution-starts",
+        type=str,
+        default="0.35,0.5,0.65,0.75,0.85,0.9,0.95",
+        help="Comma-separated initial restitution guesses for multi-start fitting.",
+    )
     args = ap.parse_args()
 
     out = args.out.resolve()
@@ -134,24 +168,23 @@ def main() -> int:
     t_tr = times[tr_idx]
     t_tr = t_tr - t_tr[0]  # start at 0 for the simulator
     obs_tr = traj_m[tr_idx]
+    gt_tr = np.stack([gt[f] for f in train_f], axis=0)
 
     # initial guesses
     p0_0 = obs_tr[0].copy()
     k = min(6, obs_tr.shape[0])
     v0_0 = np.median((obs_tr[1:k] - obs_tr[: k - 1]) / np.maximum(np.diff(t_tr[:k])[:, None], 1e-9), axis=0)
-    e0 = 0.9
     g0 = args.gravity
     grd0 = ground
 
     free_g = bool(args.fit_gravity)
     free_grd = bool(args.fit_ground)
-    x0 = [*p0_0, *v0_0, e0]
     lo = [-50, -50, -50, -50, -50, -50, 0.3]
     hi = [50, 50, 50, 50, 50, 50, 0.999]
     if free_g:
-        x0.append(g0); lo.append(-14.0); hi.append(-4.0)
+        lo.append(-14.0); hi.append(-4.0)
     if free_grd:
-        x0.append(grd0); lo.append(ground - 0.3); hi.append(ground + 0.3)
+        lo.append(ground - 0.3); hi.append(ground + 0.3)
 
     def unpack(x):
         p = np.array(x[0:3]); v = np.array(x[3:6]); e = float(x[6])
@@ -164,13 +197,94 @@ def main() -> int:
     def resid(x):
         p, v, g, e, grd = unpack(x)
         pred = simulate_trajectory(t_tr, p0=p, v0=v, gravity_z=g, restitution=e, ground_z=grd)
-        return (pred - obs_tr).reshape(-1)
+        pos_resid = (pred - obs_tr).reshape(-1)
+        if args.fit_objective == "pos":
+            return pos_resid
+        dt = float(np.median(np.diff(t_tr))) if t_tr.shape[0] > 1 else 1.0 / 120.0
+        pred_vz = np.gradient(pred[:, 2], dt)
+        if args.fit_objective == "pos_zvel_ext":
+            target_vz = np.gradient(obs_tr[:, 2], dt)
+        elif args.fit_objective == "pos_zvel_gt":
+            target_vz = np.gradient(gt_tr[:, 2], dt)
+        else:
+            raise AssertionError(args.fit_objective)
+        return np.concatenate([pos_resid, float(args.velocity_residual_weight) * (pred_vz - target_vz)])
 
-    fit = least_squares(resid, x0=np.array(x0), bounds=(np.array(lo), np.array(hi)),
-                        method="trf", loss="soft_l1", f_scale=0.05, max_nfev=4000)
-    p_fit, v_fit, g_fit, e_fit, grd_fit = unpack(fit.x)
-    train_mse = float(np.mean(np.sum((simulate_trajectory(t_tr, p0=p_fit, v0=v_fit, gravity_z=g_fit,
-                                                          restitution=e_fit, ground_z=grd_fit) - obs_tr) ** 2, axis=1)))
+    def r2_pearson(pred: np.ndarray, target: np.ndarray) -> float:
+        p = pred.reshape(-1).astype(np.float64)
+        q = target.reshape(-1).astype(np.float64)
+        p = p - float(np.mean(p))
+        q = q - float(np.mean(q))
+        denom = float(np.linalg.norm(p) * np.linalg.norm(q))
+        if denom <= 1e-12:
+            return 0.0
+        corr = float(np.dot(p, q) / denom)
+        return float(np.clip(corr * corr, 0.0, 1.0))
+
+    starts = [float(v.strip()) for v in args.restitution_starts.split(",") if v.strip()]
+    if not starts:
+        starts = [0.9]
+    candidates: list[dict[str, object]] = []
+    for e0 in starts:
+        x0 = [*p0_0, *v0_0, float(np.clip(e0, 0.3, 0.999))]
+        if free_g:
+            x0.append(g0)
+        if free_grd:
+            x0.append(grd0)
+        fit_i = least_squares(
+            resid,
+            x0=np.array(x0),
+            bounds=(np.array(lo), np.array(hi)),
+            method="trf",
+            loss="soft_l1",
+            f_scale=0.05,
+            max_nfev=4000,
+        )
+        p_i, v_i, g_i, e_i, grd_i = unpack(fit_i.x)
+        pred_i = simulate_trajectory(t_tr, p0=p_i, v0=v_i, gravity_z=g_i, restitution=e_i, ground_z=grd_i)
+        err_i = pred_i - obs_tr
+        dt_i = float(np.median(np.diff(t_tr))) if t_tr.shape[0] > 1 else 1.0 / 120.0
+        pred_vel_i = np.gradient(pred_i, dt_i, axis=0)
+        obs_vel_i = np.gradient(obs_tr, dt_i, axis=0)
+        gt_vel_i = np.gradient(gt_tr, dt_i, axis=0)
+        train_xyz_rmse_i = float(np.sqrt(np.mean(np.sum(err_i ** 2, axis=1))))
+        train_z_rmse_i = float(np.sqrt(np.mean(err_i[:, 2] ** 2)))
+        candidates.append(
+            {
+                "initial_restitution": float(e0),
+                "params": fit_i.x.tolist(),
+                "cost": float(fit_i.cost),
+                "success": bool(fit_i.success),
+                "message": str(fit_i.message),
+                "train_xyz_rmse_m": train_xyz_rmse_i,
+                "train_z_rmse_m": train_z_rmse_i,
+                "train_ext_vel_r2": r2_pearson(pred_vel_i, obs_vel_i),
+                "train_gt_vel_r2": r2_pearson(pred_vel_i, gt_vel_i),
+                "train_ext_zvel_r2": r2_pearson(pred_vel_i[:, 2], obs_vel_i[:, 2]),
+                "train_gt_zvel_r2": r2_pearson(pred_vel_i[:, 2], gt_vel_i[:, 2]),
+                "fitted_restitution": float(e_i),
+            }
+        )
+
+    metric_to_key = {
+        "train_z_rmse": "train_z_rmse_m",
+        "train_xyz_rmse": "train_xyz_rmse_m",
+        "train_ext_zvel_r2": "train_ext_zvel_r2",
+        "train_gt_zvel_r2": "train_gt_zvel_r2",
+        "train_ext_vel_r2": "train_ext_vel_r2",
+        "train_gt_vel_r2": "train_gt_vel_r2",
+    }
+    key = metric_to_key[args.selection_metric]
+    if key.endswith("_r2"):
+        best = max(candidates, key=lambda c: float(c[key]))
+    else:
+        best = min(candidates, key=lambda c: float(c[key]))
+    p_fit, v_fit, g_fit, e_fit, grd_fit = unpack(np.asarray(best["params"], dtype=np.float64))
+    pred_train = simulate_trajectory(t_tr, p0=p_fit, v0=v_fit, gravity_z=g_fit, restitution=e_fit, ground_z=grd_fit)
+    train_err = pred_train - obs_tr
+    train_mse = float(np.mean(np.sum(train_err ** 2, axis=1)))
+    train_xyz_rmse = float(np.sqrt(train_mse))
+    train_z_rmse = float(np.sqrt(np.mean(train_err[:, 2] ** 2)))
 
     # --- forward simulate over FULL available window from train start ---
     full_idx = np.array([frame_to_i[f] for f in common])
@@ -211,6 +325,15 @@ def main() -> int:
         },
         "gt": {"gravity": args.gravity, "restitution": 0.93, "ground_contact_z_m": ground},
         "train_fit_mse_m2": train_mse,
+        "train_fit_rmse_m": train_xyz_rmse,
+        "train_z_rmse_m": train_z_rmse,
+        "fit_selection": {
+            "metric": args.selection_metric,
+            "fit_objective": args.fit_objective,
+            "velocity_residual_weight": float(args.velocity_residual_weight),
+            "selected_initial_restitution": best["initial_restitution"],
+            "candidates": candidates,
+        },
         "heldout_test_rmse_m": test_rmse,
         "bounces": {
             "gt_full": gt_bounces, "predicted_full": pred_bounces,

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Full bounce prediction workflow (steps 4a-6) for completed Wu 75k 3x3 grid scenes.
 #
-# Supported scene ids: 0000, 0001, 0002, 0004, 0005, 0006, 0007, 0008.
+# Supported scene ids: 0000, 0001, 0002, 0004, 0005, 0006, 0007, 0008,
+# 0009, 0010, 0011.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PYTHONPATH=src
@@ -78,8 +79,23 @@ case "$SCENE_ID" in
     MODEL_NAME="wu_ball12_2s_blue_e97_a5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k"
     DEFAULT_ZERO_HORIZONTAL=0
     ;;
+  0009)
+    SCENE_NAME="scene_0009_e0p85_am5p0"
+    MODEL_NAME="wu_ball12_2s_blue_e85_am5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k"
+    DEFAULT_ZERO_HORIZONTAL=0
+    ;;
+  0010)
+    SCENE_NAME="scene_0010_e0p85_a0p0"
+    MODEL_NAME="wu_ball12_2s_blue_e85_a0_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k"
+    DEFAULT_ZERO_HORIZONTAL=1
+    ;;
+  0011)
+    SCENE_NAME="scene_0011_e0p85_a5p0"
+    MODEL_NAME="wu_ball12_2s_blue_e85_a5_fg20_mask1_spill1_area0p1_scaleiso5e-2_den4000_iter75k"
+    DEFAULT_ZERO_HORIZONTAL=0
+    ;;
   *)
-    echo "Unsupported SCENE_ID=$SCENE_ID. Use one of: 0000 0001 0002 0004 0005 0006 0007 0008" >&2
+    echo "Unsupported SCENE_ID=$SCENE_ID. Use one of: 0000 0001 0002 0004 0005 0006 0007 0008 0009 0010 0011" >&2
     exit 2
     ;;
 esac
