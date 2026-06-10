@@ -2,9 +2,6 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-<<<<<<< HEAD
-.venv/
-=======
 .installed.cfg
 *.egg
 MANIFEST
@@ -134,11 +131,10 @@ activemq-data/
 .env
 .envrc
 breakglass.txt
-.venv
-env/
->>>>>>> origin/main
+.venv/
+.venv_pipeline/
 venv/
-.env
+env/
 
 # Pipeline outputs (Steps 4–6)
 outputs/
@@ -204,9 +200,6 @@ third_party/4DGaussians/**/__pycache__/
 
 # Jupyter
 .ipynb_checkpoints/
-
-# macOS
-.DS_Store
 
 # Tooling
 .ruff_cache/
