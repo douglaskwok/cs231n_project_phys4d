@@ -338,22 +338,52 @@ def _composite_layers_depth(
     object_layers: list[tuple[np.ndarray, np.ndarray]],
     *,
     fg_threshold: int,
+    alpha_gamma: float = 1.0,
+    depth_slack: float = 0.08,
+    alpha_fill_threshold: int | None = None,
+    min_alpha: float = 0.04,
 ) -> np.ndarray:
-    """Depth-buffer merge of separately rasterized background + object layers."""
+    """Depth-guided alpha composite for separately rasterized layers.
 
-    out = background_rgb.copy()
+    Wu/3DGS depth is a transmittance-weighted mean, so object interiors often fail
+    a strict ``obj_depth < bg_depth`` test even when the alpha matte is solid (only
+    silhouette edges survive).  Keep depth ordering where reliable and alpha-fill
+    the interior with a softer matte threshold.
+    """
+
+    if alpha_fill_threshold is None:
+        alpha_fill_threshold = max(4, int(fg_threshold) // 4)
+
+    out = background_rgb.astype(np.float32)
     best_depth = _depth_scalar(background_depth)
     best_depth = np.where(best_depth > 1e-6, best_depth, np.inf)
-    thr = int(fg_threshold)
+    slack = float(depth_slack)
 
     for obj_rgb, obj_depth in object_layers:
+        obj = obj_rgb.astype(np.float32)
         obj_d = _depth_scalar(obj_depth)
-        fg = np.max(obj_rgb, axis=2) > thr
-        valid = fg & (obj_d > 1e-6)
-        closer = valid & (obj_d < best_depth)
-        out[closer] = obj_rgb[closer]
-        best_depth[closer] = obj_d[closer]
-    return out
+        valid_d = obj_d > 1e-6
+
+        alpha_strict = _object_alpha_from_black_bg(
+            obj_rgb, int(fg_threshold), gamma=alpha_gamma
+        )
+        alpha_fill = _object_alpha_from_black_bg(
+            obj_rgb, int(alpha_fill_threshold), gamma=alpha_gamma
+        )
+        alpha = np.maximum(alpha_strict, alpha_fill)
+
+        in_front_strict = valid_d & (obj_d < best_depth)
+        in_front_soft = valid_d & (obj_d < best_depth * (1.0 + slack))
+        strong_alpha = alpha[..., 0] >= float(min_alpha)
+        # Depth wins at edges; soft depth + alpha recover the interior fill.
+        use = strong_alpha & (in_front_strict | in_front_soft | (alpha[..., 0] > 0.18))
+        blended = obj * alpha + out * (1.0 - alpha)
+        out = np.where(use[..., np.newaxis], blended, out)
+
+        placed = use & valid_d
+        best_depth = np.where(placed, np.minimum(obj_d, best_depth), best_depth)
+
+    return np.clip(out, 0.0, 255.0).astype(np.uint8)
 
 
 def _boost_opacity(vertices: np.ndarray, boost: float) -> np.ndarray:
@@ -649,6 +679,7 @@ def run_step5(
                         bg_depth,
                         [(obj_rgb, obj_depth)],
                         fg_threshold=composite_threshold,
+                        alpha_gamma=composite_alpha_gamma,
                     )
                 else:
                     rgb = _composite_layers_threshold(

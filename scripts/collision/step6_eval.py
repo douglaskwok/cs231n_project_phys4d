@@ -58,13 +58,11 @@ def main() -> int:
         raise SystemExit("--predicted and --gt-poses must list the same number of objects")
     extracted = [Path(p) for p in _split(args.extracted_traj)]
 
-    # The collision refit stores a per-object similarity list; the bounce fused plot
-    # expects a single similarity dict, so per-object overlays are computed by passing
-    # the matching extracted traj only when a per-object refit is available. We pass the
-    # split for the test-marker line.
+    refit_blob: dict | None = None
     split_blob = None
     if args.refit_metric is not None and args.refit_metric.is_file():
-        split_blob = json.loads(args.refit_metric.read_text(encoding="utf-8")).get("split")
+        refit_blob = json.loads(args.refit_metric.read_text(encoding="utf-8"))
+        split_blob = refit_blob.get("split")
 
     out_base = args.out.resolve()
     out_base.mkdir(parents=True, exist_ok=True)
@@ -75,6 +73,11 @@ def main() -> int:
     for k in range(n_obj):
         # Render metrics computed once (object 0); other objects trajectory-only.
         skip_render = bool(args.trajectory_only) or (k > 0)
+        sim_k = None
+        if refit_blob is not None:
+            sims = refit_blob.get("similarity")
+            if isinstance(sims, list) and k < len(sims):
+                sim_k = sims[k]
         result = run_step6(
             predicted_csv=predicted[k],
             gt_poses_csv=gt_poses[k],
@@ -84,8 +87,10 @@ def main() -> int:
             fps=args.fps,
             skip_render_metrics=skip_render,
             extracted_traj_csv=extracted[k] if k < len(extracted) else None,
-            refit_metric_json=None,  # per-object similarity not directly compatible
+            refit_metric_json=args.refit_metric,
             split=split_blob,
+            refit_body_index=k,
+            similarity=sim_k,
         )
         blob = json.loads(result.metrics_json.read_text(encoding="utf-8"))
         if k == 0 and not args.trajectory_only:

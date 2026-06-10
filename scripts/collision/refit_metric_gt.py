@@ -425,6 +425,7 @@ def main() -> int:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    train_mask = np.array([(train_start <= f <= train_end) for f in common])
     fig, axes = plt.subplots(3, n_obj, figsize=(5.5 * n_obj, 9), sharex=True, squeeze=False)
     names = ["x", "y", "z"]
     for k in range(n_obj):
@@ -432,7 +433,22 @@ def main() -> int:
             ax = axes[j][k]
             ax.plot(t_full, gt_full[k][:, j], "g-", lw=2, label="GT")
             ax.plot(t_full, traj_m[k][full_idx0][:, j], "k.", ms=3, alpha=0.45, label="extracted")
-            ax.plot(t_full, pred_full[:, k, j], "r-", lw=1.8, label="fit/predict")
+            if train_mask.any():
+                ax.plot(
+                    t_full[train_mask],
+                    pred_full[train_mask, k, j],
+                    "r-",
+                    lw=2,
+                    label="physics fit (train)",
+                )
+            if test_mask.any():
+                ax.plot(
+                    t_full[test_mask],
+                    pred_full[test_mask, k, j],
+                    color="#7b2cbf",
+                    lw=2,
+                    label="physics predict (test)",
+                )
             if test_mask.any():
                 ax.axvline(t_full[test_mask.argmax()], color="b", ls="--", alpha=0.5)
             if j == 2:
@@ -445,7 +461,7 @@ def main() -> int:
                     ax.axhline(w + off, color="purple", ls=":", lw=1, alpha=0.6)
             ax.set_ylabel(f"obj{k} {nm} (m)")
             ax.grid(alpha=0.3)
-            ax.legend(loc="best", fontsize=7)
+            ax.legend(loc="best", fontsize=10)
         axes[0][k].set_title(f"obj{k}  e_floor={bodies[k].restitution_floor:.3f}")
     wall_txt = "off" if wall_x is None and wall_y is None else f"e_wall={e_wall_fit:.3f}"
     extra = ""

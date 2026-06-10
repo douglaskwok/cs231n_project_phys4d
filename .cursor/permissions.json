@@ -1,0 +1,27 @@
+{
+  "terminalAllowlist": [
+    "modal",
+    "python",
+    "python3",
+    "conda run",
+    "export PYTHONPATH=src",
+    "pip install",
+    "echo",
+    "head",
+    "afplay",
+    "bash scripts/bounce/ping_user.sh",
+    "bash scripts/bounce/request_user_ping.sh"
+  ],
+  "autoRun": {
+    "allow_instructions": [
+      "Running the Phys4D bounce pipeline is allowed: step4a/step5 on Modal; refit_metric_gt.py, predict_metric_from_refit.py, and step6_eval.py locally under scripts/bounce/.",
+      "modal run modal_app.py with --upload-step4a, --step4a, --upload-step5, --step5, --upload-bg, --train-bg-job, --object-scale, and --object-crop-radius is expected and should be allowed.",
+      "modal volume get, modal volume put, and modal volume ls for phys4d-gs-data and phys4d-gs-output volumes are expected.",
+      "Local python scripts under scripts/bounce/ (refit_metric_gt.py, predict_metric_from_refit.py, step6_eval.py, make_wu_export.py, make_background_export.py) are pipeline steps on local data and should be allowed.",
+      "Reading and writing under outputs/bounce_pipeline/ for pipeline artifacts is expected."
+    ],
+    "block_instructions": [
+      "Do not auto-run git push, git reset --hard, or rm -rf outside outputs/bounce_pipeline/."
+    ]
+  }
+}

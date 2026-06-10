@@ -204,6 +204,107 @@ def _apply_similarity(sim: dict[str, object], pts: np.ndarray) -> np.ndarray:
     return (s * (R @ pts.T)).T + t[None, :]
 
 
+def _similarity_from_refit(blob: dict[str, object], *, body_index: int = 0) -> dict[str, object] | None:
+    sim = blob.get("similarity")
+    if sim is None:
+        return None
+    if isinstance(sim, list):
+        if body_index < 0 or body_index >= len(sim):
+            return None
+        return sim[body_index]
+    if isinstance(sim, dict):
+        return sim
+    return None
+
+
+def _predict_meta_options(predicted_csv: Path) -> tuple[float | None, bool]:
+    """Read optional ``step4c/predict_meta.json`` for fps / zero-horizontal consistency."""
+
+    meta_path = predicted_csv.resolve().parent / "predict_meta.json"
+    if not meta_path.is_file():
+        return None, False
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    fps = float(meta["fps"]) if meta.get("fps") is not None else None
+    zero_h = bool(meta.get("zero_horizontal", False))
+    return fps, zero_h
+
+
+def _simulate_physics_trajectory(
+    blob: dict[str, object],
+    sim_frames: np.ndarray,
+    *,
+    fps: float,
+    zero_horizontal: bool,
+    body_index: int = 0,
+    anchor_frame: int | None = None,
+) -> np.ndarray | None:
+    """Forward-simulate metric-frame physics from ``refit_metric.json`` params.
+
+    ``anchor_frame`` sets t=0 for integration (train start).  Must match step4c
+    ``--anchor-frame`` so held-out prediction continues phase from the fit.
+    """
+
+    if not sim_frames.size:
+        return None
+
+    anchor = int(anchor_frame if anchor_frame is not None else sim_frames[0])
+    times = (sim_frames - anchor).astype(np.float64) / max(float(fps), 1e-9)
+
+    if "bodies" in blob:
+        from phys4d.collision.physics import Body, simulate_scene
+
+        body_blobs = blob["bodies"]
+        if not body_blobs or body_index >= len(body_blobs):
+            return None
+        bodies = [
+            Body(
+                p0=np.asarray(b["p0_m"], dtype=np.float64),
+                v0=np.asarray(b["v0_m_s"], dtype=np.float64),
+                radius=float(b["radius_m"]),
+                mass=float(b["mass_kg"]),
+                restitution_floor=float(b["restitution_floor"]),
+            )
+            for b in body_blobs
+        ]
+        walls = blob.get("walls") or {}
+        wall_x = tuple(walls["x"]) if walls.get("x") else None
+        wall_y = tuple(walls["y"]) if walls.get("y") else None
+        pred = simulate_scene(
+            times,
+            bodies=bodies,
+            gravity_z=float(blob["gravity_z_m_s2"]),
+            ground_z=float(blob["ground_z_m"]),
+            restitution_pair=float(blob["restitution_pair"]),
+            substeps=int(blob.get("substeps", 8)),
+            wall_x=wall_x,
+            wall_y=wall_y,
+            restitution_wall=float(blob.get("restitution_wall", 1.0)),
+        )
+        return pred[:, body_index, :]
+
+    params = blob.get("params") or {}
+    needed = {"p0_m", "v0_m_s", "gravity_z_m_s2", "restitution", "ground_z_m"}
+    if not needed.issubset(params.keys()):
+        return None
+
+    from phys4d.bounce.physics import simulate_trajectory
+
+    p0 = np.asarray(params["p0_m"], dtype=np.float64)
+    v0 = np.asarray(params["v0_m_s"], dtype=np.float64)
+    if zero_horizontal:
+        v0 = v0.copy()
+        v0[0] = 0.0
+        v0[1] = 0.0
+    return simulate_trajectory(
+        times,
+        p0=p0,
+        v0=v0,
+        gravity_z=float(params["gravity_z_m_s2"]),
+        restitution=float(params["restitution"]),
+        ground_z=float(params["ground_z_m"]),
+    )
+
+
 def _plot_fused_trajectory(
     path: Path,
     *,
@@ -213,8 +314,12 @@ def _plot_fused_trajectory(
     extracted_csv: Path | None,
     refit_metric_json: Path | None,
     split: dict[str, object] | None,
+    fps: float = 60.0,
+    predicted_csv: Path | None = None,
+    refit_body_index: int = 0,
+    similarity: dict[str, object] | None = None,
 ) -> None:
-    """GT + metric extracted (train) + metric predicted (test) on one timeline."""
+    """GT + metric extracted (train) + physics fit/predict + held-out prediction."""
 
     import matplotlib.pyplot as plt
 
@@ -229,31 +334,106 @@ def _plot_fused_trajectory(
     split_train = (split or {}).get("train") if split else None
     split_test = (split or {}).get("test") if split else None
     if split_train and split_test:
-        title = f"Trajectory — train {split_train[0]}..{split_train[1]} / test {split_test[0]}..{split_test[1]}"
+        title = (
+            f"Trajectory — train {split_train[0]}..{split_train[1]} / "
+            f"test {split_test[0]}..{split_test[1]}"
+        )
     else:
-        title = "Trajectory — extracted (train) + predicted (test) vs GT"
+        title = "Trajectory — extracted + physics fit + predicted vs GT"
 
-    extracted_plotted = False
-    if extracted_csv is not None and extracted_csv.is_file() and refit_metric_json is not None:
-        blob = json.loads(refit_metric_json.read_text(encoding="utf-8"))
-        sim = blob.get("similarity")
-        if sim is not None:
-            ext_fr, ext_xyz = _load_traj_xyz(extracted_csv)
-            ext_m = _apply_similarity(sim, ext_xyz)
-            for ax, axis, name in zip(axes, range(3), ("x", "y", "z")):
-                ax.plot(ext_fr, ext_m[:, axis], "k.", ms=3, alpha=0.5, label="extracted (4DGS→metric)")
-                extracted_plotted = True
+    meta_fps, zero_horizontal = _predict_meta_options(predicted_csv) if predicted_csv else (None, False)
+    plot_fps = float(meta_fps if meta_fps is not None else fps)
 
+    refit_blob: dict[str, object] | None = None
+    if refit_metric_json is not None and refit_metric_json.is_file():
+        refit_blob = json.loads(refit_metric_json.read_text(encoding="utf-8"))
+
+    sim_dict = similarity
+    if sim_dict is None and refit_blob is not None:
+        sim_dict = _similarity_from_refit(refit_blob, body_index=refit_body_index)
+
+    ext_fr: np.ndarray | None = None
+    ext_m: np.ndarray | None = None
+    if extracted_csv is not None and extracted_csv.is_file() and sim_dict is not None:
+        ext_fr, ext_xyz = _load_traj_xyz(extracted_csv)
+        ext_m = _apply_similarity(sim_dict, ext_xyz)
+
+    fit_fr: np.ndarray | None = None
+    fit_xyz: np.ndarray | None = None
+    anchor_frame = int(split_train[0]) if split_train else 0
+    if refit_blob is not None and split_train:
+        train_start, train_end = int(split_train[0]), int(split_train[1])
+        fit_fr = np.arange(train_start, train_end + 1, dtype=np.int32)
+        fit_xyz = _simulate_physics_trajectory(
+            refit_blob,
+            fit_fr,
+            fps=plot_fps,
+            zero_horizontal=zero_horizontal,
+            body_index=refit_body_index,
+            anchor_frame=anchor_frame,
+        )
+
+    # Held-out curve: prefer step4c CSV (same trajectory used for step5 renders).
+    pred_fr: np.ndarray | None = predicted_frames if predicted_frames.size else None
+    pred_xyz: np.ndarray | None = predicted_xyz if predicted_xyz.size else None
+    if pred_fr is None and refit_blob is not None and split_test:
+        test_start, test_end = int(split_test[0]), int(split_test[1])
+        pred_fr = np.arange(test_start, test_end + 1, dtype=np.int32)
+        pred_xyz = _simulate_physics_trajectory(
+            refit_blob,
+            pred_fr,
+            fps=plot_fps,
+            zero_horizontal=zero_horizontal,
+            body_index=refit_body_index,
+            anchor_frame=anchor_frame,
+        )
+
+    legend_fs = 13
     for ax, axis, name in zip(axes, range(3), ("x", "y", "z")):
-        ax.plot(gt_frames, gt_xyz[:, axis], "g-", lw=1.8, label="GT PyBullet")
-        if extracted_plotted and ax.get_legend_handles_labels()[0]:
-            pass  # extracted label already added
-        ax.plot(predicted_frames, predicted_xyz[:, axis], "r-", lw=2.0, label="predicted (test)")
+        ax.plot(gt_frames, gt_xyz[:, axis], "g-", lw=2.0, label="GT PyBullet", zorder=1)
+        if ext_fr is not None and ext_m is not None:
+            ax.plot(
+                ext_fr,
+                ext_m[:, axis],
+                "k.",
+                ms=3,
+                alpha=0.5,
+                label="extracted (4DGS→metric)",
+                zorder=2,
+            )
+        if fit_fr is not None and fit_xyz is not None:
+            ax.plot(
+                fit_fr,
+                fit_xyz[:, axis],
+                color="tab:red",
+                lw=2.0,
+                label="physics fit (train)",
+                zorder=3,
+            )
+        if pred_fr is not None and pred_xyz is not None:
+            ax.plot(
+                pred_fr,
+                pred_xyz[:, axis],
+                color="#7b2cbf",
+                lw=2.0,
+                ls="-",
+                label="physics predict (test)",
+                zorder=4,
+            )
         if split_test:
             ax.axvline(int(split_test[0]), color="b", ls="--", alpha=0.45, label="test start")
         ax.set_ylabel(f"{name} (m)")
         ax.grid(alpha=0.3)
-        ax.legend(loc="best", fontsize=8)
+        handles, labels = ax.get_legend_handles_labels()
+        seen: set[str] = set()
+        uniq_h, uniq_l = [], []
+        for h, lab in zip(handles, labels):
+            if lab in seen:
+                continue
+            seen.add(lab)
+            uniq_h.append(h)
+            uniq_l.append(lab)
+        ax.legend(uniq_h, uniq_l, loc="best", fontsize=legend_fs)
     axes[0].set_title(title)
     axes[-1].set_xlabel("simulation frame")
     fig.tight_layout()
@@ -306,6 +486,8 @@ def run_step6(
     extracted_traj_csv: Path | None = None,
     refit_metric_json: Path | None = None,
     split: dict[str, object] | None = None,
+    refit_body_index: int = 0,
+    similarity: dict[str, object] | None = None,
 ) -> Step6Result:
     """Compute trajectory + rendering metrics for held-out predictions."""
 
@@ -370,6 +552,10 @@ def run_step6(
             extracted_csv=extracted_traj_csv,
             refit_metric_json=refit_metric_json,
             split=split,
+            fps=fps,
+            predicted_csv=predicted_csv,
+            refit_body_index=refit_body_index,
+            similarity=similarity,
         )
     else:
         fused_plot_png = None

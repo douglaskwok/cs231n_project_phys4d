@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/modal_ping.sh",
+        "matcher": "modal run|modal volume"
+      }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/stop_ping.sh"
+      }
+    ]
+  }
+}

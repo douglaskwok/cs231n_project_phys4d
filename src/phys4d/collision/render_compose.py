@@ -363,7 +363,11 @@ def run_step5(
                     )
                 elif composite_mode == "depth":
                     rgb = _composite_layers_depth(
-                        bg_rgb, bg_depth, obj_layers, fg_threshold=composite_threshold
+                        bg_rgb,
+                        bg_depth,
+                        obj_layers,
+                        fg_threshold=composite_threshold,
+                        alpha_gamma=composite_alpha_gamma,
                     )
                 else:
                     rgb = _composite_layers_threshold(
