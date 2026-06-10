@@ -1,1 +1,1 @@
-"""Ball-bounce pipeline (Steps 4–6) — see milestone3.md."""
+"""Phys4D pipeline library (Steps 4–6) — see README.md."""

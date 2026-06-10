@@ -7,8 +7,9 @@ so the trajectory-extrapolation pipeline (`scripts/bounce/step4a..step6`) can ru
 Everything downstream is path-driven. The code parses these files literally — field
 names, filename padding, and the `frame` join key must match exactly.
 
-See also: [`milestone3.md`](milestone3.md) (pipeline spec) and
-[`STAGES_4_6_COMMANDS.txt`](STAGES_4_6_COMMANDS.txt) (commands).
+See also: [`README.md`](README.md) (pipeline overview),
+[`STAGES_4_6_COMMANDS.txt`](STAGES_4_6_COMMANDS.txt) (commands), and
+[`METRICS.md`](METRICS.md) (evaluation definitions).
 
 ---
 

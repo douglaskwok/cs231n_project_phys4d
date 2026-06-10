@@ -47,7 +47,7 @@ class Step4aResult:
 
 
 def load_train_timestamps(dynerf_export: Path) -> list[TrainTimestamp]:
-    """Build per-frame normalized times matching Wu training (Gotcha #2 in milestone3)."""
+    """Build per-frame normalized times matching Wu training (see extract.py)."""
 
     dynerf_export = dynerf_export.resolve()
     frame_map_path = dynerf_export / "frame_map.json"
@@ -77,7 +77,7 @@ def load_train_timestamps(dynerf_export: Path) -> list[TrainTimestamp]:
             )
         return out
 
-    # Fallback: unique ``time`` values from transforms_train.json (milestone3 pseudocode).
+    # Fallback: unique ``time`` values from transforms_train.json.
     tf_path = dynerf_export / "transforms_train.json"
     if not tf_path.is_file():
         raise FileNotFoundError(

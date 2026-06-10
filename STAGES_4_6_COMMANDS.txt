@@ -2,7 +2,7 @@
 Ball Bounce Pipeline — Steps 4a–6 Command Reference
 ================================================================================
 
-Authoritative spec: milestone3.md
+Authoritative spec: README.md, DATA_CONTRACT.md, METRICS.md
 Run all commands from the repo root:
 
   cd cs231n_project_phys4d.nosync
@@ -87,7 +87,7 @@ Arguments:
 Outputs (${OUT}/step4a/):
   trajectory_raw.csv, trajectory_smoothed.csv, trajectory_plot.png, step4a_meta.json
 
-Acceptance (milestone3):
+Acceptance criteria:
   - No NaNs; monotonic t_sec; visible bounce on z; train MSE < 0.05 m (aligned)
 
 ================================================================================
@@ -195,7 +195,7 @@ Command (full 3DGS composite):
     --scene-dir "${SCENE_DIR}" \
     --out "${OUT}/step5"
 
-Fallback (2D ball overlay on GT RGB — milestone3 fallback):
+Fallback (2D ball overlay on GT RGB):
 
   python scripts/bounce/step5_render.py \
     --canonical "${WU_OUT}/point_cloud/iteration_30000/point_cloud.ply" \

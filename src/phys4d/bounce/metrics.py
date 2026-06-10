@@ -72,7 +72,7 @@ def _positions_for_frames(gt_poses_csv: Path, frames: np.ndarray) -> np.ndarray:
 
 
 def _r2_pearson(pred: np.ndarray, gt: np.ndarray) -> float:
-    """Pearson R² between flattened series (milestone3 velocity / acceleration)."""
+    """Pearson R² between flattened series (velocity / acceleration metrics)."""
 
     p = pred.reshape(-1).astype(np.float64)
     g = gt.reshape(-1).astype(np.float64)

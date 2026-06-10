@@ -26,7 +26,7 @@ class LoadedWu4DGS:
 
 
 def default_wu_root() -> Path:
-    """Prefer env override, then the vendored submodule path from milestone3."""
+    """Prefer env override, then the vendored submodule path."""
 
     env = os.environ.get("WU_4DGS_ROOT")
     if env:

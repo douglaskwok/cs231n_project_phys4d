@@ -243,7 +243,7 @@ def run_step4c(
     )
 
     # Single rollout from fitted initial conditions through train, then test.
-    # Test predictions are NOT re-simulated from p0 (milestone3 §4c).
+    # Test predictions are NOT re-simulated from p0 (step 4c spec).
     pred = simulate_trajectory(
         times,
         p0=params.p0,

@@ -149,7 +149,7 @@ def simulate_trajectory(
     restitution: float,
     ground_z: float,
 ) -> np.ndarray:
-    """Forward simulate piecewise motion (milestone3 discrete bounce integrator)."""
+    """Forward simulate piecewise motion (discrete bounce integrator)."""
 
     times = np.asarray(times, dtype=np.float64)
     n = int(times.shape[0])

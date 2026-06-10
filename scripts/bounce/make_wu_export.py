@@ -136,7 +136,7 @@ def main() -> int:
     )
 
     # frame_map.json bridges PyBullet frame indices <-> kept training order and
-    # carries the train/test split that the milestone3 step4a/step4c scripts read.
+    # carries the train/test split that step4a/step4c scripts read.
     # Times use the same frame/fps mapping the Wu run was trained on.
     def _frame_rows(frame_list: list[int]) -> list[dict]:
         return [

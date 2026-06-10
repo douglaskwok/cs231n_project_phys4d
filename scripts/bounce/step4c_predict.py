@@ -87,7 +87,7 @@ def main() -> int:
     if np.isfinite(result.boundary_gap_m):
         print(f"  boundary_gap_m: {result.boundary_gap_m:.6f}")
         if result.boundary_gap_m >= 0.01:
-            print("  WARNING: boundary gap >= 1 cm (milestone3 target)", file=sys.stderr)
+            print("  WARNING: boundary gap >= 1 cm (acceptance target)", file=sys.stderr)
     print(f"  min_clearance_m: {result.min_clearance_m:.6f}")
     if result.min_clearance_m < -1e-4:
         print("  WARNING: floor penetration detected", file=sys.stderr)

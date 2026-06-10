@@ -69,7 +69,7 @@ def main() -> int:
     parser.add_argument(
         "--force-overlay",
         action="store_true",
-        help="Skip Wu 3DGS rasterizer; draw projected ball on GT RGB (milestone3 fallback)",
+        help="Skip Wu 3DGS rasterizer; draw projected ball on GT RGB (2D overlay fallback)",
     )
     parser.add_argument(
         "--sphere-radius-m",

@@ -124,7 +124,7 @@ def main() -> int:
         print(f"  train MSE vs GT (Procrustes): {result.train_mse_aligned_m2:.6f} m²")
         if result.train_mse_aligned_m2 > 0.05:
             print(
-                "  WARNING: aligned MSE > 0.05 m² (milestone3 acceptance); "
+                "  WARNING: aligned MSE > 0.05 m² (pipeline acceptance); "
                 "check time normalization and opacity getter.",
                 file=sys.stderr,
             )

@@ -23,7 +23,7 @@ from phys4d.bounce.physics import run_step4b  # noqa: E402
 
 
 def _check_acceptance(result, *, fix_gravity: bool) -> int:
-    """Print milestone3 acceptance warnings; return 0 (non-fatal)."""
+    """Print pipeline acceptance warnings; return 0 (non-fatal)."""
 
     import json
 
