@@ -71,7 +71,7 @@ Use this folder as **proof and staging** for Gaussian assets **after segmentatio
 | DyNeRF export: `frame_map.json`, `transforms_train.json`, `transforms_test.json` | Steps 4a, 4c, 5 |
 | Static background `background.ply` (3DGS) | Step 5 compositing |
 
-Download the scene(s) you need, then point `SCENE_DIR`, `WU_OUT`, and `EXPORT` at the local paths (see [`STAGES_4_6_COMMANDS.txt`](STAGES_4_6_COMMANDS.txt)).
+Download the scene(s) you need, then point `SCENE_DIR`, `WU_OUT`, and `EXPORT` at the local paths (see Quick start below).
 
 **In-repo generated data** (optional refresh): run the `dataset/` scripts below; outputs go to `dataset/outputs/` (gitignored).
 
@@ -93,9 +93,9 @@ export PYTHONPATH=src
 export WU_4DGS_ROOT=third_party/4DGaussians
 ```
 
-For PyBullet data generation, use a separate env with `pybullet`, `imageio`, and optionally `imageio-ffmpeg` (see [`dataset/README.md`](dataset/README.md)).
+For PyBullet data generation, use a separate env with `pybullet`, `imageio`, and optionally `imageio-ffmpeg`.
 
-For GPU steps (3, 4a, 5): install [Modal](https://modal.com), configure credentials, and use `modal_app.py` (see [`context.md`](context.md)).
+For GPU steps (3, 4a, 5): install [Modal](https://modal.com), configure credentials, and use `modal_app.py`.
 
 ### 2. Generate or download data
 
@@ -110,7 +110,7 @@ python dataset/generate_phys4d_final.py --video-fps 60
 # Report collision grid (8 scenes, 2×2×2 parameters)
 python dataset/generate_collision_variants_final.py
 
-# Single bounce scene (custom flags — see dataset/README.md)
+# Single bounce scene
 python dataset/export_ping_pong_12view.py \
   --variation-set single \
   --output-dir dataset/outputs/my_bounce_scene \
@@ -131,7 +131,7 @@ python 4dgs/experiments/object_only/export_object_only_dynerf.py \
 bash 4dgs/scripts/train_one_scene_wu4dgs.sh <SCENE_DIR> <RUN_NAME>
 ```
 
-Collision: train **one 4DGS model per object** with `masks_object_a` / `masks_object_b` (see [`docs/COLLISION_4DGS_COMPOSITION.md`](docs/COLLISION_4DGS_COMPOSITION.md)).
+Collision: train **one 4DGS model per object** with `masks_object_a` / `masks_object_b`.
 
 ### 4. Physics pipeline (Steps 4a–6)
 
@@ -184,11 +184,7 @@ python scripts/bounce/step6_eval.py \
   --out "${OUT}/step6"
 ```
 
-**Collision:** same structure under `scripts/collision/`; see [`scripts/collision/workflow.md`](scripts/collision/workflow.md).
-
-Step-by-step bounce notes: [`scripts/bounce/workflow.md`](scripts/bounce/workflow.md).  
-Full flag reference: [`STAGES_4_6_COMMANDS.txt`](STAGES_4_6_COMMANDS.txt).  
-Artifact schemas: [`DATA_CONTRACT.md`](DATA_CONTRACT.md).
+**Collision:** same structure under `scripts/collision/`.
 
 ### 5. Tests (no GPU)
 
@@ -214,7 +210,7 @@ scripts/
   diagnostics/            analysis / plotting (post-hoc)
 modal_app.py              Modal GPU orchestration (train, 4a, 5)
 outputs/                  Per-run pipeline artifacts (gitignored)
-docs/                     Design notes (e.g. collision compositing)
+docs/                     Submission notes
 tests/                    Unit tests for Steps 4a–6
 ```
 
@@ -248,12 +244,6 @@ Data generation defaults for collision: `dataset/generate_collision_variants_fin
 | Document | Purpose |
 |----------|---------|
 | [`docs/GENAI_CODING_AGENT_USAGE.md`](docs/GENAI_CODING_AGENT_USAGE.md) | Coding-agent usage statement (CS231N submission) |
-| [`STAGES_4_6_COMMANDS.txt`](STAGES_4_6_COMMANDS.txt) | Copy-paste CLI for Steps 4a–6 |
-| [`DATA_CONTRACT.md`](DATA_CONTRACT.md) | Required file names & JSON schemas |
-| [`METRICS.md`](METRICS.md) | RMSE, R², PSNR, SSIM definitions |
-| [`context.md`](context.md) | Worked bounce reproduction (Modal paths) |
-| [`dataset/README.md`](dataset/README.md) | Data generation flags & layouts |
-| [`docs/COLLISION_4DGS_COMPOSITION.md`](docs/COLLISION_4DGS_COMPOSITION.md) | Per-object 4DGS + compositing |
 
 ---
 
